@@ -1,0 +1,12 @@
+FROM golang:1.27.4-bookworm
+ARG DAFNY_VERSION=4.11.0
+RUN apt-get update && apt-get install -y --no-install-recommends unzip libicu72 && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL "https://github.com/dafny-lang/dafny/releases/download/v${DAFNY_VERSION}/dafny-${DAFNY_VERSION}-x64-ubuntu-22.04.zip" -o /tmp/dafny.zip \
+ && unzip -q /tmp/dafny.zip -d /opt && chmod +x /opt/dafny/dafny /opt/dafny/z3/bin/z3* && rm /tmp/dafny.zip
+RUN go install golang.org/x/tools/cmd/goimports@v0.43.0
+ENV PATH="/opt/dafny:${PATH}"
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+CMD ["./scripts/verify.sh"]

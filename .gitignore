@@ -1,0 +1,5 @@
+.build/
+.tools/
+.env
+*.log
+.DS_Store

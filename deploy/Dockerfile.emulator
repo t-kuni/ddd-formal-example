@@ -1,0 +1,9 @@
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023-minimal
+ARG TARGETARCH
+ARG EMULATOR_CHANNEL=LTS/latest
+RUN case "$TARGETARCH" in arm64) arch=aarch64;; *) arch=x86_64;; esac \
+ && curl -fsSL "https://downloads.aws.com/aws-emulator/packages/aws-emulator/${EMULATOR_CHANNEL}/aws-emulator-${arch}.rpm" -o /tmp/emulator.rpm \
+ && rpm -i /tmp/emulator.rpm && rm /tmp/emulator.rpm
+ENV EMULATOR_BIND_ADDRESS=0.0.0.0 EMULATOR_TELEMETRY=off
+ENTRYPOINT ["aws-emulator"]
+CMD ["--telemetry", "off"]

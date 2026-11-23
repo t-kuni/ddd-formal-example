@@ -1,0 +1,120 @@
+name: orbit-wholesale
+x-env: &app-env
+  DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit?sslmode=disable
+  AWS_ENDPOINT_URL: https://127.0.0.1:9297
+  AWS_SHARED_CREDENTIALS_FILE: /root/.aws/emulator/9297/emulator_credentials
+  AWS_CA_BUNDLE: /root/.aws/emulator/9297/ca.pem
+  AWS_REGION: us-east-1
+  AWS_EC2_METADATA_DISABLED: "true"
+  SMTP_ADDR: mailpit:1025
+  INVOKE_LOCK_PATH: /invoke/rie.lock
+x-runner: &runner
+  build:
+    context: .
+    dockerfile: deploy/Dockerfile
+    target: runner
+  network_mode: service:aws
+  volumes:
+    - aws-state:/root/.aws/emulator:ro
+    - invoke-lock:/invoke
+  environment: *app-env
+services:
+  postgres:
+    image: postgres:18.3-bookworm
+    environment:
+      POSTGRES_DB: orbit
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: orbit
+    volumes:
+      - pg-data:/var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U orbit -d orbit"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  aws:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.emulator
+    volumes:
+      - aws-state:/root/.aws/emulator
+    ports:
+      - 127.0.0.1:8088:8088
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS --cacert /root/.aws/emulator/9297/ca.pem https://127.0.0.1:9297/__admin/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+  mailpit:
+    image: axllent/mailpit:v1.34.0
+    ports:
+      - 127.0.0.1:8025:8025
+  init:
+    <<: *runner
+    command: [init]
+    depends_on:
+      postgres: {condition: service_healthy}
+      aws: {condition: service_healthy}
+  lambda:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: lambda
+    network_mode: service:aws
+    environment: *app-env
+    volumes:
+      - aws-state:/root/.aws/emulator:ro
+    depends_on:
+      init: {condition: service_completed_successfully}
+      mailpit: {condition: service_started}
+  gateway:
+    <<: *runner
+    command: [gateway]
+    depends_on:
+      lambda: {condition: service_started}
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS http://127.0.0.1:8088/api/health"]
+      interval: 3s
+      timeout: 10s
+      retries: 30
+  event-source-mapping:
+    <<: *runner
+    command: [bridge]
+    depends_on:
+      gateway: {condition: service_healthy}
+  verify:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.verify
+    platform: linux/amd64
+    profiles: [test]
+  integration:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.verify
+    platform: linux/amd64
+    profiles: [test]
+    environment:
+      TEST_DATABASE_URL: postgres://orbit:orbit@postgres-test:5432/orbit_test?sslmode=disable
+    command: [go, test, -count=1, -v, ./internal/app]
+    depends_on:
+      postgres-test: {condition: service_healthy}
+  postgres-test:
+    image: postgres:18.3-bookworm
+    profiles: [test]
+    environment:
+      POSTGRES_DB: orbit_test
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: orbit
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U orbit -d orbit_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pg-data:
+  aws-state:
+  invoke-lock:
