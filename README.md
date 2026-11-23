@@ -22,6 +22,7 @@ docker compose ps
 - アプリ: http://localhost:8088
 - APIリファレンス（Scalar）: http://localhost:8088/docs
 - メール確認（Mailpit）: http://localhost:8025
+- [DB閲覧（Adminer）](http://127.0.0.1:8089/?pgsql=postgres)
 
 初期化には少し時間がかかります。起動中の502は数秒待って再読み込みしてください。初期化に失敗した場合は以下で確認します。
 
