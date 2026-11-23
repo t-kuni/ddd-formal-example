@@ -3,7 +3,8 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -o /out/orbit ./cmd/app
+RUN built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" && \
+    CGO_ENABLED=0 go build -trimpath -ldflags "-X wholesale.local/orbit/internal/web.builtAt=$built_at" -o /out/orbit ./cmd/app
 
 FROM public.ecr.aws/lambda/provided:al2023 AS lambda
 COPY --from=build /out/orbit /var/task/bootstrap

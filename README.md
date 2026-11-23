@@ -121,6 +121,8 @@ docker compose up -d
 docker compose up --build -d
 ```
 
+ソース変更後にビルドして起動したら、ブラウザを再読み込みし、左上のロゴ下にある「ビルド」の日時（JST）を確認します。この日時は配信中のアプリのバイナリに埋め込まれています。同じイメージで再起動した場合や、Dockerが前回のビルド結果を再利用した場合は同じ日時が表示されます。
+
 AWS Emulatorは停止するとS3/SQSなどの内容を失います。画像の元データと未処理CommandはPostgreSQLに保持しており、初期化と再送で復旧します。`docker compose restart aws`だけではなく、全体をdown/upしてください。
 
 PostgreSQLのデータは `pg-normalized-v2-data` ボリュームに保存します。

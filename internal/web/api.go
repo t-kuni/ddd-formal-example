@@ -79,6 +79,7 @@ func (a *API) Handler() http.Handler {
 	sub, _ := fs.Sub(assets, "static")
 	static := http.NewServeMux()
 	registerDocs(static)
+	static.HandleFunc("GET /{$}", serveIndex())
 	static.Handle("/", http.FileServer(http.FS(sub)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
