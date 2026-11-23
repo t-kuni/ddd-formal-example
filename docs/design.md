@@ -9,6 +9,7 @@
 | 形式検証 | Dafny 4.11.0 + 同梱Z3 | 契約と実行ロジックを同じソースに置き、検証した処理をGoに生成する |
 | バックエンド | Go、標準net/http、pgx v5、AWS SDK v2 | 永続化と外部サービスのアダプターを明確に分離 |
 | DB | PostgreSQL 18 | JSONBによる集約スナップショット、トランザクション、一意制約、楽観ロック |
+| DB閲覧 | Adminer | ブラウザでテーブル定義と保存データを確認。ホスト側の公開先は127.0.0.1 |
 | 非同期 | AWS EmulatorのSQS Standard、Go Lambda、EventBridge Scheduler | 少なくとも1回の配信を前提に、DBで冪等性を保証する |
 | 画像 | AWS EmulatorのS3 | 公式エミュレーターを実際のSDKで使用。LocalStackは使わない |
 | UI | HTML/CSS/JavaScript ES modules、Goによる配信 | Nodeのビルド環境なしで起動でき、画面・業務フローの検証に集中する |

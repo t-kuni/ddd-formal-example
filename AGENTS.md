@@ -52,6 +52,7 @@
 | UI | `internal/web/static/` |
 | Lambda・ローカルアダプター | `cmd/app/main.go` |
 | 実行構成 | `compose.yaml`, `deploy/` |
+| PostgreSQLのブラウザ閲覧 | `compose.yaml` の `adminer`、接続情報は `README.md` |
 
 集約スナップショットが正本であり、Event Sourcingではない。Commandの完了、集約更新、projection_eventsの追加は同じトランザクション。SQS送信に失敗してもDBの未処理Commandから再送する。投影はversionを比較し、古いイベントで上書きしない。
 

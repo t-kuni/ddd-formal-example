@@ -32,6 +32,15 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+  adminer:
+    image: adminer:6.3.0-standalone
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - 127.0.0.1:8089:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
   aws:
     build:
       context: .

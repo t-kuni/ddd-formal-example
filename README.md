@@ -30,13 +30,30 @@ docker compose ps
 docker compose logs init aws lambda gateway event-source-mapping
 ```
 
-AWSアカウント・アクセスキー・課金は不要です。実AWSには接続しません。APIとメール画面のポートは127.0.0.1にだけ公開しています。
+AWSアカウント・アクセスキー・課金は不要です。実AWSには接続しません。API・メール画面・DB閲覧画面は127.0.0.1にだけ公開しています。
+
+## ブラウザでDBを閲覧
+
+[Adminer（PostgreSQL 選択済み）](http://127.0.0.1:8089/?pgsql=postgres) を開き、以下の値でログインします。データベース種類が MySQL / MariaDB の場合は PostgreSQL に切り替えてください。
+
+| 項目 | 入力値 |
+|---|---|
+| データベースシステム | PostgreSQL |
+| サーバー | `postgres` |
+| ユーザー名 | `orbit` |
+| パスワード | `orbit` |
+| データベース | `orbit` |
+
+ログイン後、`public` スキーマでテーブルを選び、「データ選択」で行を閲覧できます。接続に使うローカルDBユーザーには書き込み権限もあります。
+
+起動済みの環境に Adminer を追加する場合は `docker compose up -d --no-recreate adminer` を実行します。
 
 ## 構成
 
 | 要素 | ローカルで動くもの |
 |---|---|
 | データベース | PostgreSQL 18.3 |
+| DB閲覧 | Adminer 6.3.0 |
 | S3、SQS、IAM、EventBridge Scheduler | 公式 [aws/aws-emulator](https://github.com/aws/aws-emulator) |
 | Go Lambda | AWS公式 Runtime Interface Emulator (RIE) |
 | API Gateway相当 | HTTPリクエストをLambdaイベントに変換する薄いGoアダプター |
