@@ -16,7 +16,7 @@
 | 請求書 | GoのPDF生成、SMTP、Mailpit | ローカルでPDF添付メールの内容を閲覧できる |
 | 起動 | Docker Compose | DB、AWS、API、各worker、メールを分離 |
 
-Dafnyを原本とするのは値の範囲、在庫とカートの引当、金額・ポイント計算、受注の状態遷移・履歴と配送条件。CommandワーカーはGoの操作実装を渡して `ExecuteCommand` を1回呼ぶ。Dafnyの `RequestState` が最初の集約とIDを決め、`DecideCommand` が更新内容を返し、`DependenciesFor` が更新に必要な追加データを示す。カート・受注の明細は `map<string, int>` で受け渡す。
+Dafnyを原本とするのは値の範囲、在庫とカートの引当、金額・ポイント計算、受注の状態遷移・履歴と配送条件。CommandワーカーはGoの操作実装を渡して `ExecuteCommand` を1回呼ぶ。Dafnyの `RequestState` が最初の集約とIDを決め、`DecideCommand` が更新内容を返し、`DependenciesFor` が更新に必要な追加データを示す。カート・受注の明細は `map<string, int>` で受け渡す。Commandの個別判断はカート・発注、受注・配送、在庫調整のモジュールに分け、各Commandが名前付きの純粋関数を持つ。 [Commandごとの関数一覧](../DAFNY.md#commandごとの入口)
 
 Goは `Effects` を通じて、指定されたIDのSQL読み込み、型付き集約への更新適用、PDF生成、トランザクションを実装する。在庫行は商品ID順に保存する。Command行をロックし、業務上の拒否時はセーブポイントまで戻して、同じロックの下で拒否を記録する。成功時は業務変更とCommand完了を同じトランザクションでコミットする。Dafnyが楽観ロック競合からの再試行を指示し、その試行のトランザクションで読み直す。生成Goは直接編集しない。
 

@@ -26,7 +26,7 @@
 - ID、金額、数量等は専用型に変換し、集約フィールドを公開しない。DTOを集約へ直接保存しない。Snapshotはコピーとする。
 - Goのゼロ値・enumは完全には型で防げない。入力境界・集約操作・DB復元の検査を維持する。
 - HTTP APIはOpenAPIによるスキーマ駆動とする。APIを追加・変更するときは原本の `api/openapi.yaml` を先に更新し、`go generate ./api` で全APIのルーティング・入出力型・ハンドラーインターフェースを再生成する。生成コードは直接編集しない。
-- 形式検証の原本は業務ルールの`formal/Domain.dfy`とCommandの読み込み・更新内容・実行順序を決める`formal/CommandFlow.dfy`。`generated/`を手で修正しない。手書きGoで同じ計算を複製しない。
+- 形式検証の原本は `formal/`。業務ルールは `Domain.dfy`、Commandの共通実行は `CommandFlow.dfy`、個別の判断は `CartCommands.dfy`・`OrderCommands.dfy`・`StockCommands.dfy`。`generated/`を手で修正しない。手書きGoで同じ計算を複製しない。
 
 ## 業務ルールの要点
 
@@ -44,7 +44,9 @@
 | 在庫・カートの引当と期限・受注履歴・配送条件・値の範囲・金額とポイントの形式仕様 | `formal/Domain.dfy` |
 | 値オブジェクト・集約 | `internal/domain/values.go`, `types.go`, `aggregate.go` |
 | Commandの永続受付・受付時の冪等性 | `internal/app/commands.go` |
-| Commandの読み込み先・分岐・更新内容・再試行 | `formal/CommandFlow.dfy` の `ExecuteCommand` と純粋関数 |
+| Commandの読み込み先・振り分け・再試行 | `formal/CommandFlow.dfy` |
+| Commandごとの判断と更新内容 | `formal/CartCommands.dfy`, `formal/OrderCommands.dfy`, `formal/StockCommands.dfy` |
+| Commandの共通型 | `formal/CommandModel.dfy` |
 | 更新適用とトランザクションの副作用実装 | `internal/app/command_execution.go` |
 | Commandのスナップショット取得・更新内容の適用 | `internal/app/command_plan.go` |
 | 請求書・SMTP | `internal/app/invoice.go` |

@@ -3,11 +3,11 @@ set -eu
 cd "$(dirname "$0")/.."
 DAFNY=${DAFNY:-dafny}
 mkdir -p .build
-"$DAFNY" verify formal/Domain.dfy formal/CommandFlow.dfy --verification-time-limit 30
-"$DAFNY" translate go formal/Domain.dfy formal/CommandFlow.dfy --include-runtime --go-module-name wholesale.local/orbit/generated --output .build/Domain
+"$DAFNY" verify formal/Domain.dfy formal/CommandModel.dfy formal/CartCommands.dfy formal/OrderCommands.dfy formal/StockCommands.dfy formal/CommandFlow.dfy --verification-time-limit 30
+"$DAFNY" translate go formal/Domain.dfy formal/CommandModel.dfy formal/CartCommands.dfy formal/OrderCommands.dfy formal/StockCommands.dfy formal/CommandFlow.dfy --include-runtime --go-module-name wholesale.local/orbit/generated --output .build/Domain
 # Dafny 4.11 leaves System_ runtime imports unqualified; normalize imports only.
 find .build/Domain-go -name '*.go' -exec sed -i 's|"dafny"|"wholesale.local/orbit/generated/dafny"|g' {} +
-for name in Domain CommandFlow System_ dafny; do diff -r "generated/$name" ".build/Domain-go/$name"; done
+for name in Domain CommandModel CartCommands OrderCommands StockCommands CommandFlow System_ dafny; do diff -r "generated/$name" ".build/Domain-go/$name"; done
 # A deliberately broken invariant must be detected; this prevents a no-op verifier.
 sed 's/next := if ok then r + delta else r;/next := if ok then r + delta + 1 else r;/' formal/Domain.dfy > .build/Mutant.dfy
 if "$DAFNY" verify .build/Mutant.dfy > .build/mutation-result.txt 2>&1; then
@@ -15,14 +15,14 @@ if "$DAFNY" verify .build/Mutant.dfy > .build/mutation-result.txt 2>&1; then
 fi
 grep -q 'could not be proved' .build/mutation-result.txt
 # A delivery plan without its invoice must violate the postcondition.
-sed '/var obligations :=/s/, CreateInvoice//' formal/CommandFlow.dfy > .build/CommandFlowMutant.dfy
-if "$DAFNY" verify formal/Domain.dfy .build/CommandFlowMutant.dfy > .build/command-mutation-result.txt 2>&1; then
+sed '/var obligations :=/s/, CreateInvoice//' formal/OrderCommands.dfy > .build/OrderCommandsMutant.dfy
+if "$DAFNY" verify formal/Domain.dfy formal/CommandModel.dfy .build/OrderCommandsMutant.dfy > .build/command-mutation-result.txt 2>&1; then
  echo 'ERROR: verifier accepted delivery without an invoice' >&2; exit 1
 fi
 grep -q 'postcondition could not be proved' .build/command-mutation-result.txt
 # A customer read must use the authenticated actor's identity.
 sed 's/else ReadCart(if input.kind == "cart.expire" then input.customer else input.actor)/else ReadCart(input.customer)/' formal/CommandFlow.dfy > .build/WrongCartMutant.dfy
-if "$DAFNY" verify formal/Domain.dfy .build/WrongCartMutant.dfy > .build/cart-read-mutation-result.txt 2>&1; then
+if "$DAFNY" verify formal/Domain.dfy formal/CommandModel.dfy formal/CartCommands.dfy formal/OrderCommands.dfy formal/StockCommands.dfy .build/WrongCartMutant.dfy > .build/cart-read-mutation-result.txt 2>&1; then
  echo 'ERROR: verifier accepted a cart read using the payload customer' >&2; exit 1
 fi
 grep -q 'postcondition could not be proved' .build/cart-read-mutation-result.txt

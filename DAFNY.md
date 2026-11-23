@@ -60,9 +60,9 @@ datatype CartChange = CartFull | CartUnchanged | CartTimeOutOfRange |
 
 - `plan.CartChanged?` は「結果が `CartChanged` か」を調べます。`plan.reset` などのフィールドは、それを持つコンストラクターに対して読みます。`plan.CartChanged? ==> ...` は、保証とフィールド参照の両方を該当する結果に絞ります。
 - 本体の分岐順は「有効期限内の満杯カートへの新規追加」「変更なし」「期限を表せる時刻範囲の超過」「変更成立」です。たとえば、有効期限内で数量を 2 から 5 に変え、時刻上限にも達していなければ、`reset` は偽、`delta` は 3、`expiry` は `now + 3600` です。
-- `now >= expires` の場合、変更が成立すると `reset` は真です。`delta` の定義は常に `requested - previousQuantity` です。`PlanCart` は、対象商品の差分に加え、期限切れ時に除去する他商品の解放量も求めます。
+- `now >= expires` の場合、変更が成立すると `reset` は真です。`delta` の定義は常に `requested - previousQuantity` です。`SetCart` は、対象商品の差分に加え、期限切れ時に除去する他商品の解放量も求めます。
 
-[カート変更の定義と契約](formal/Domain.dfy#L124-L142) · [カートの更新内容](formal/CommandFlow.dfy)
+[カート変更の定義と契約](formal/Domain.dfy#L124-L142) · [カートの更新内容](formal/CartCommands.dfy#L5)
 
 ## 4. `CheckHistory` で列と全称量化を読む
 
@@ -95,7 +95,26 @@ predicate HistoryStepsValid(edges: seq<HistoryEdge>) {
 Dafny は事前条件を満たす入力について、処理が契約を満たすことや、添字アクセスなどが安全であることを静的に検証します。実行用の述語・関数・メソッドは Go に生成され、`requires`・`ensures`・`assert` は静的検証に使われます。Go 側の入力検査、DB の保存、トランザクション、外部サービスとの連携は、別途テストで確認する範囲です。[設計](docs/design.md) · [検証結果](docs/verification.md) · [検証の実行方法](README.md#形式検証テスト)
 
 
-## Commandの更新内容を読む
+## Commandごとの入口
+
+| Command | Dafnyの関数 |
+| --- | --- |
+| `cart.set` | [SetCart](formal/CartCommands.dfy#L5) |
+| `cart.expire` | [ExpireCart](formal/CartCommands.dfy#L39) |
+| `order.checkout` | [CheckoutOrder](formal/CartCommands.dfy#L51) |
+| `stock.adjust` | [AdjustStock](formal/StockCommands.dfy#L4) |
+| `order.pay` | [PayOrder](formal/OrderCommands.dfy#L35) |
+| `order.cancel` | [CancelOrder](formal/OrderCommands.dfy#L40) |
+| `order.pick` | [PickOrder](formal/OrderCommands.dfy#L54) |
+| `order.block` | [BlockOrder](formal/OrderCommands.dfy#L60) |
+| `order.pack` | [PackOrder](formal/OrderCommands.dfy#L65) |
+| `order.dispatch` | [DispatchOrder](formal/OrderCommands.dfy#L71) |
+| `order.delivery_failed` | [FailDelivery](formal/OrderCommands.dfy#L79) |
+| `order.redeliver` | [RedeliverOrder](formal/OrderCommands.dfy#L84) |
+| `order.deliver` | [DeliverOrder](formal/OrderCommands.dfy#L89) |
+| `order.return` | [ReturnOrder](formal/OrderCommands.dfy#L99) |
+
+共通の型と更新計画の構造は [CommandModel.dfy](formal/CommandModel.dfy) にあります。
 
 ワーカーは `ExecuteCommand` にGoの `Effects` を渡します。Dafnyの `RequestState` が読み込み対象を決め、SQLの結果を `DecideCommand` に渡します。結果の `CommandPlan` は、拒否、変更なし、または適用すべき更新内容です。`DependenciesFor` は、その更新に必要な追加の読み込みを返します。
 

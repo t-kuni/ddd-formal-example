@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	plan "wholesale.local/orbit/generated/CommandFlow"
+	plan "wholesale.local/orbit/generated/CommandModel"
 	d "wholesale.local/orbit/generated/dafny"
 	"wholesale.local/orbit/internal/domain"
 	"wholesale.local/orbit/internal/store"

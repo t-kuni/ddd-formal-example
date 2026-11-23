@@ -7,7 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	plan "wholesale.local/orbit/generated/CommandFlow"
+	flow "wholesale.local/orbit/generated/CommandFlow"
+	plan "wholesale.local/orbit/generated/CommandModel"
 	d "wholesale.local/orbit/generated/dafny"
 	"wholesale.local/orbit/internal/domain"
 	"wholesale.local/orbit/internal/store"
@@ -16,7 +17,7 @@ import (
 func (s *Service) Process(ctx context.Context, id string) error {
 	effects := &commandEffects{ctx: ctx, service: s, id: id}
 	defer effects.Rollback()
-	plan.Companion_Default___.ExecuteCommand(effects)
+	flow.Companion_Default___.ExecuteCommand(effects)
 	return effects.err
 }
 
@@ -33,7 +34,7 @@ type commandEffects struct {
 	err     error
 }
 
-var _ plan.Effects = (*commandEffects)(nil)
+var _ flow.Effects = (*commandEffects)(nil)
 
 func (*commandEffects) String() string { return "commandEffects" }
 

@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	plan "wholesale.local/orbit/generated/CommandFlow"
+	flow "wholesale.local/orbit/generated/CommandFlow"
+	plan "wholesale.local/orbit/generated/CommandModel"
 	d "wholesale.local/orbit/generated/dafny"
 	"wholesale.local/orbit/internal/domain"
 	"wholesale.local/orbit/internal/store"
@@ -23,7 +24,7 @@ func TestCartPlanAndExpiryBoundary(t *testing.T) {
 			textValue(actor), d.One, itemMap(cart.Items), d.IntOfInt64(cart.Expires),
 			plan.Companion_RequestedDay_.Create_Unspecified_(), d.Zero, plan.Companion_Coupon_.Create_NoCoupon_(),
 		)
-		return plan.Companion_Default___.DecideCommand(a.input(), plan.Companion_Snapshot_.Create_Cart_(state))
+		return flow.Companion_Default___.DecideCommand(a.input(), plan.Companion_Snapshot_.Create_Cart_(state))
 	}
 	first := decide("cart.set", 100, 1)
 	if !first.Is_UpdateCart() || first.Dtor_expiry().Int64() != 3700 ||
@@ -69,7 +70,7 @@ func TestExecuteCommandInjectsOnlyRequestedReads(t *testing.T) {
 				now: time.Unix(100, 0),
 			}
 			e := &checkoutEffects{t: t, input: a.input(), customer: customer, product: product}
-			status := plan.Companion_Default___.ExecuteCommand(e)
+			status := flow.Companion_Default___.ExecuteCommand(e)
 			if !status.Is_Ok() || !e.committed {
 				t.Fatalf("status=%v committed=%t", status, e.committed)
 			}
@@ -85,7 +86,7 @@ func TestExecuteCommandInjectsOnlyRequestedReads(t *testing.T) {
 }
 
 type checkoutEffects struct {
-	plan.Effects
+	flow.Effects
 	t                 *testing.T
 	input             plan.CommandInput
 	customer, product string

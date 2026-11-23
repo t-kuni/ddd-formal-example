@@ -4,7 +4,7 @@
 
 | 検証 | 結果・範囲 |
 |---|---|
-| Compose `verify` | Dafny 32件、Dafny・OpenAPI生成物との差分なし、在庫引当、配送完了時の請求書、カート読取先の変異検出、型誤用のコンパイル拒否、Goテスト、vet |
+| Compose `verify` | Dafny 37件、Dafny・OpenAPI生成物との差分なし、在庫引当、配送完了時の請求書、カート読取先の変異検出、型誤用のコンパイル拒否、Goテスト、vet |
 | Compose `integration` | PostgreSQL結合テスト6件。カート失効と古い期限の拒否、部分適用後に拒否されたカート更新のロールバック、複数商品の引当変更の原子性、楽観ロック、Command重複、障害時の試行回数とdead遷移、配送完了・ポイント・PDF |
 | 副作用の注入 | 発注が本人のカート・クーポン・商品を要求し、権限のない発注は集約を読まず拒否することをテスト用の実装で確認 |
 | Compose起動 | AWS Emulator・Lambda・API・SQS workerが稼働。PostgreSQL結合テストは空の専用DBから初期化 |
