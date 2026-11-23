@@ -6,6 +6,8 @@
 
 Composeを再ビルドし、Chromeで外部リクエストを遮断した状態で全8操作の表示と「Test Request」からの `GET /api/health` 成功を確認。配信された `/openapi.yaml` は原本とバイト単位で一致し、`go test ./...` も成功。
 
+Command受付の本文スキーマでは、Chromeで「One of」に全13種類のCommand名が表示され、`stock.adjust` の選択でリクエスト例が切り替わることを確認。Lambdaを再ビルドし、配信されたOpenAPIと原本の一致、`go generate ./api`、`go test ./...` を確認。PostgreSQL結合テストと業務フローのE2Eはこの変更では未実施。
+
 ## OpenAPI移行後の検証
 
 | 検証 | 結果・範囲 |

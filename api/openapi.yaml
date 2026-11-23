@@ -450,6 +450,7 @@ components:
       additionalProperties: false
       oneOf:
       - type: object
+        title: cart.set
         properties:
           type:
             type: string
@@ -464,6 +465,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.checkout
         properties:
           type:
             type: string
@@ -480,6 +482,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: stock.adjust
         properties:
           type:
             type: string
@@ -495,6 +498,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.pay
         properties:
           type:
             type: string
@@ -510,6 +514,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.cancel
         properties:
           type:
             type: string
@@ -524,6 +529,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.pick
         properties:
           type:
             type: string
@@ -538,6 +544,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.block
         properties:
           type:
             type: string
@@ -552,6 +559,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.pack
         properties:
           type:
             type: string
@@ -568,6 +576,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.dispatch
         properties:
           type:
             type: string
@@ -583,6 +592,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.delivery_failed
         properties:
           type:
             type: string
@@ -597,6 +607,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.redeliver
         properties:
           type:
             type: string
@@ -611,6 +622,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.deliver
         properties:
           type:
             type: string
@@ -625,6 +637,7 @@ components:
             additionalProperties: false
         required: [type, payload]
       - type: object
+        title: order.return
         properties:
           type:
             type: string
