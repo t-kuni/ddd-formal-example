@@ -1,0 +1,730 @@
+openapi: 3.1.0
+info:
+  title: ORBIT Wholesale API
+  version: 1.0.0
+  description: ローカル検証用。利用者IDは擬似ログイン用で、業務操作は非同期のCommandとして処理する。
+paths:
+  /api/health:
+    get:
+      operationId: GetHealth
+      summary: DB接続を確認
+      responses:
+        '200':
+          description: 稼働中
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+        '503':
+          description: DBの処理に失敗
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/bootstrap:
+    get:
+      operationId: GetBootstrap
+      summary: 初期マスタ
+      responses:
+        '200':
+          description: 初期マスタ
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Bootstrap'}
+        '500':
+          description: DBの処理に失敗
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/state:
+    get:
+      operationId: GetState
+      summary: 利用者が参照できる読み取りモデル
+      parameters:
+      - name: X-Actor-ID
+        in: header
+        required: false
+        schema: {type: string, format: uuid, x-go-type: string}
+        description: 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
+      responses:
+        '200':
+          description: 読み取りモデルと処理履歴
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/State'}
+        '400':
+          description: HTTP入力が不正
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401':
+          description: 利用者が不明
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '500':
+          description: DBの処理に失敗
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/commands:
+    post:
+      operationId: PostCommand
+      summary: Commandを永続受付
+      parameters:
+      - name: X-Actor-ID
+        in: header
+        required: false
+        schema: {type: string, format: uuid, x-go-type: string}
+        description: 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema: {type: string, format: uuid, x-go-type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SubmitCommand'}
+      responses:
+        '202':
+          description: 永続受付済み。処理結果と投影反映はstateで確認
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CommandAccepted'}
+        '400':
+          description: HTTP入力が不正
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401':
+          description: 利用者が不明
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '409':
+          description: 同じキーに異なる内容
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/commands/{id}/retry:
+    post:
+      operationId: RetryCommand
+      summary: 停止したCommandを再投入
+      parameters:
+      - name: X-Actor-ID
+        in: header
+        required: false
+        schema: {type: string, format: uuid, x-go-type: string}
+        description: 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid, x-go-type: string}
+      responses:
+        '202':
+          description: 受付済み
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Accepted'}
+        '400':
+          description: HTTP入力が不正
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '403':
+          description: 運用者権限が必要
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '409':
+          description: 再投入できないCommand
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '500':
+          description: DBの処理に失敗
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/maintenance:
+    post:
+      operationId: PostMaintenance
+      summary: 定期処理を即時投入
+      parameters:
+      - name: X-Actor-ID
+        in: header
+        required: false
+        schema: {type: string, format: uuid, x-go-type: string}
+        description: 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
+      responses:
+        '202':
+          description: 受付済み
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Accepted'}
+        '400':
+          description: HTTP入力が不正
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '403':
+          description: 運用者権限が必要
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503':
+          description: キューへの投入に失敗
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/images/{id}:
+    get:
+      operationId: GetImage
+      summary: 商品画像
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid, x-go-type: string}
+      responses:
+        '200':
+          description: 商品画像
+          content:
+            image/svg+xml:
+              schema: {type: string, format: binary}
+          headers:
+            Cache-Control:
+              schema: {type: string}
+        '400':
+          description: HTTP入力が不正
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '502':
+          description: 画像を取得できない
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/invoices/{id}:
+    get:
+      operationId: GetInvoice
+      summary: 所有者または運用者が請求書を取得
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid, x-go-type: string}
+      - name: X-Actor-ID
+        in: header
+        required: false
+        schema: {type: string, format: uuid, x-go-type: string}
+      - name: actor
+        in: query
+        required: false
+        schema: {type: string, format: uuid, x-go-type: string}
+      responses:
+        '200':
+          description: 請求書
+          content:
+            application/pdf:
+              schema: {type: string, format: binary}
+          headers:
+            Content-Disposition:
+              schema: {type: string}
+        '400':
+          description: HTTP入力が不正
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401':
+          description: 利用者が不明
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '404':
+          description: 請求書を取得できない
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '500':
+          description: DBの処理に失敗
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+components:
+  schemas:
+    Address:
+      type: object
+      properties:
+        company: {type: string}
+        recipient: {type: string}
+        postal: {type: string}
+        text: {type: string}
+        phone: {type: string}
+      required: [company, recipient, postal, text, phone]
+    Actor:
+      type: object
+      properties:
+        id: {type: string, format: uuid, x-go-type: string}
+        name: {type: string}
+        role:
+          type: string
+          enum: [customer, warehouse, carrier, operator]
+        email: {type: string}
+        address: {$ref: '#/components/schemas/Address'}
+      required: [id, name, role, email, address]
+    Product:
+      type: object
+      properties:
+        id: {type: string, format: uuid, x-go-type: string}
+        sku: {type: string}
+        name: {type: string}
+        category: {type: string}
+        unit: {type: string}
+        image: {type: string}
+        price: {type: integer, format: int64}
+      required: [id, sku, name, category, unit, image, price]
+    Stock:
+      type: object
+      properties:
+        onHand: {type: integer, format: int64}
+        reserved: {type: integer, format: int64}
+      required: [onHand, reserved]
+    Cart:
+      type: object
+      properties:
+        customerId: {type: string, format: uuid, x-go-type: string}
+        items:
+          type: object
+          additionalProperties: {type: integer, format: int64}
+        expires: {type: integer, format: int64}
+      required: [customerId, items, expires]
+    Loyalty:
+      type: object
+      properties:
+        points: {type: integer, format: int64}
+      required: [points]
+    Line:
+      type: object
+      properties:
+        productId: {type: string, format: uuid, x-go-type: string}
+        sku: {type: string}
+        name: {type: string}
+        unit: {type: string}
+        quantity: {type: integer, format: int64}
+        price: {type: integer, format: int64}
+      required: [productId, sku, name, unit, quantity, price]
+    Box:
+      type: object
+      properties:
+        id: {type: string, format: uuid, x-go-type: string}
+        label: {type: string}
+        weightGrams: {type: integer, format: int64}
+      required: [id, label, weightGrams]
+    History:
+      type: object
+      properties:
+        at: {type: string, format: date-time}
+        actor: {type: string, format: uuid, x-go-type: string}
+        from: {type: integer}
+        to: {type: integer}
+        note: {type: string}
+      required: [at, actor, from, to, note]
+    Order:
+      type: object
+      properties:
+        id: {type: string, format: uuid, x-go-type: string}
+        number: {type: string}
+        customerId: {type: string, format: uuid, x-go-type: string}
+        status: {type: integer}
+        lines:
+          type: array
+          items: {$ref: '#/components/schemas/Line'}
+        address: {$ref: '#/components/schemas/Address'}
+        requestedDate: {type: string}
+        note: {type: string}
+        coupon: {type: string}
+        workerId: {type: string}
+        carrierId: {type: string}
+        tracking: {type: string}
+        discountPercent: {type: integer, format: int64}
+        subtotal: {type: integer, format: int64}
+        discount: {type: integer, format: int64}
+        net: {type: integer, format: int64}
+        tax: {type: integer, format: int64}
+        total: {type: integer, format: int64}
+        points: {type: integer, format: int64}
+        boxes:
+          type: array
+          items: {$ref: '#/components/schemas/Box'}
+        history:
+          type: array
+          items: {$ref: '#/components/schemas/History'}
+        createdAt: {type: string, format: date-time}
+      required: [id, number, customerId, status, lines, address, requestedDate, note, coupon, workerId,
+        carrierId, tracking, discountPercent, subtotal, discount, net, tax, total, points, boxes, history,
+        createdAt]
+    Invoice:
+      type: object
+      properties:
+        id: {type: string, format: uuid, x-go-type: string}
+        orderId: {type: string, format: uuid, x-go-type: string}
+        sent: {type: boolean}
+        error: {type: string}
+      required: [id, orderId, sent, error]
+    Error:
+      type: object
+      properties:
+        error: {type: string}
+      required: [error]
+    Accepted:
+      type: object
+      properties:
+        accepted: {type: boolean}
+      required: [accepted]
+    CommandStatus:
+      type: string
+      enum: [queued, succeeded, rejected, dead]
+    CommandAccepted:
+      type: object
+      properties:
+        id: {type: string, format: uuid, x-go-type: string}
+        status: {$ref: '#/components/schemas/CommandStatus'}
+      required: [id, status]
+    Health:
+      type: object
+      properties:
+        ok: {type: boolean}
+      required: [ok]
+    Bootstrap:
+      type: object
+      properties:
+        actors:
+          type: array
+          items: {$ref: '#/components/schemas/Actor'}
+        products:
+          type: array
+          items: {$ref: '#/components/schemas/Product'}
+        statuses:
+          type: array
+          items: {type: string}
+      required: [actors, products, statuses]
+    CommandPayload:
+      type: object
+      properties:
+        productId: {type: string}
+        orderId: {type: string}
+        customerId: {type: string}
+        carrierId: {type: string}
+        coupon: {type: string}
+        requestedDate: {type: string}
+        note: {type: string}
+        tracking: {type: string}
+        quantity: {type: integer, format: int64}
+        delta: {type: integer, format: int64}
+        expectedVersion: {type: integer, format: int64}
+        expires: {type: integer, format: int64}
+        weightGrams: {type: integer, format: int64}
+        address:
+          type: object
+          properties:
+            company: {type: string}
+            recipient: {type: string}
+            postal: {type: string}
+            text: {type: string}
+            phone: {type: string}
+          additionalProperties: false
+        boxCount: {type: integer}
+        success: {type: boolean}
+      additionalProperties: false
+    CommandType:
+      type: string
+      enum: [cart.set, order.checkout, stock.adjust, order.pay, order.cancel, order.pick, order.block,
+        order.pack, order.dispatch, order.delivery_failed, order.redeliver, order.deliver, order.return]
+      description: 公開HTTP APIで受付可能な操作名。
+    SubmitCommand:
+      type: object
+      properties:
+        type: {$ref: '#/components/schemas/CommandType'}
+        payload: {$ref: '#/components/schemas/CommandPayload'}
+      required: [type, payload]
+      additionalProperties: false
+      oneOf:
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [cart.set]
+          payload:
+            type: object
+            properties:
+              productId: {type: string, format: uuid, x-go-type: string}
+              quantity: {type: integer, format: int64}
+              expectedVersion: {type: integer, format: int64}
+            required: [productId, quantity]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.checkout]
+          payload:
+            type: object
+            properties:
+              address: {$ref: '#/components/schemas/Address'}
+              coupon: {type: string}
+              requestedDate: {type: string}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [address]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [stock.adjust]
+          payload:
+            type: object
+            properties:
+              productId: {type: string, format: uuid, x-go-type: string}
+              delta: {type: integer, format: int64}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [productId, delta]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.pay]
+          payload:
+            type: object
+            properties:
+              orderId: {type: string, format: uuid, x-go-type: string}
+              success: {type: boolean}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [orderId, success]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.cancel]
+          payload:
+            type: object
+            properties:
+              orderId: {type: string, format: uuid, x-go-type: string}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [orderId]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.pick]
+          payload:
+            type: object
+            properties:
+              orderId: {type: string, format: uuid, x-go-type: string}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [orderId]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.block]
+          payload:
+            type: object
+            properties:
+              orderId: {type: string, format: uuid, x-go-type: string}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [orderId]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.pack]
+          payload:
+            type: object
+            properties:
+              orderId: {type: string, format: uuid, x-go-type: string}
+              boxCount: {type: integer}
+              weightGrams: {type: integer, format: int64}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [orderId, boxCount, weightGrams]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.dispatch]
+          payload:
+            type: object
+            properties:
+              orderId: {type: string, format: uuid, x-go-type: string}
+              tracking: {type: string}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [orderId, tracking]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.delivery_failed]
+          payload:
+            type: object
+            properties:
+              orderId: {type: string, format: uuid, x-go-type: string}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [orderId]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.redeliver]
+          payload:
+            type: object
+            properties:
+              orderId: {type: string, format: uuid, x-go-type: string}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [orderId]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.deliver]
+          payload:
+            type: object
+            properties:
+              orderId: {type: string, format: uuid, x-go-type: string}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [orderId]
+            additionalProperties: false
+        required: [type, payload]
+      - type: object
+        properties:
+          type:
+            type: string
+            enum: [order.return]
+          payload:
+            type: object
+            properties:
+              orderId: {type: string, format: uuid, x-go-type: string}
+              note: {type: string}
+              expectedVersion: {type: integer, format: int64}
+            required: [orderId]
+            additionalProperties: false
+        required: [type, payload]
+    CommandResult:
+      type: object
+      properties:
+        orderId: {type: string, format: uuid, x-go-type: string}
+        productId: {type: string, format: uuid, x-go-type: string}
+        customerId: {type: string, format: uuid, x-go-type: string}
+        noop: {type: boolean}
+        expired: {type: boolean}
+        status: {type: integer}
+        versions:
+          type: object
+          additionalProperties: {type: integer, format: int64}
+      additionalProperties: false
+    CommandRecord:
+      type: object
+      properties:
+        id: {type: string, format: uuid, x-go-type: string}
+        actorId: {type: string, format: uuid, x-go-type: string}
+        type: {type: string}
+        payload: {$ref: '#/components/schemas/CommandPayload'}
+        status: {$ref: '#/components/schemas/CommandStatus'}
+        result:
+          anyOf:
+          - {$ref: '#/components/schemas/CommandResult'}
+          - {type: 'null'}
+        error: {type: string}
+        attempts: {type: integer}
+        createdAt: {type: string, format: date-time}
+        projected: {type: boolean}
+      required: [id, actorId, type, payload, status, result, error, attempts, createdAt, projected]
+    StockProjection:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [stock]
+        id: {type: string, format: uuid, x-go-type: string}
+        version: {type: integer, format: int64}
+        body: {$ref: '#/components/schemas/Stock'}
+      required: [kind, id, version, body]
+    CartProjection:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [cart]
+        id: {type: string, format: uuid, x-go-type: string}
+        version: {type: integer, format: int64}
+        body: {$ref: '#/components/schemas/Cart'}
+      required: [kind, id, version, body]
+    OrderProjection:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [order]
+        id: {type: string, format: uuid, x-go-type: string}
+        version: {type: integer, format: int64}
+        body: {$ref: '#/components/schemas/Order'}
+      required: [kind, id, version, body]
+    LoyaltyProjection:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [loyalty]
+        id: {type: string, format: uuid, x-go-type: string}
+        version: {type: integer, format: int64}
+        body: {$ref: '#/components/schemas/Loyalty'}
+      required: [kind, id, version, body]
+    Projection:
+      oneOf:
+      - {$ref: '#/components/schemas/StockProjection'}
+      - {$ref: '#/components/schemas/CartProjection'}
+      - {$ref: '#/components/schemas/OrderProjection'}
+      - {$ref: '#/components/schemas/LoyaltyProjection'}
+    State:
+      type: object
+      properties:
+        views:
+          type: array
+          items: {$ref: '#/components/schemas/Projection'}
+        commands:
+          type: array
+          items: {$ref: '#/components/schemas/CommandRecord'}
+        invoices:
+          type: array
+          items: {$ref: '#/components/schemas/Invoice'}
+        now: {type: integer, format: int64}
+      required: [views, commands, invoices, now]

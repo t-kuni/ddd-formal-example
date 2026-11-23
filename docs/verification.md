@@ -2,6 +2,21 @@
 
 検証日: 2026-11-23。サンプルデータのみを使用。
 
+## Scalar APIリファレンスの検証
+
+Composeを再ビルドし、Chromeで外部リクエストを遮断した状態で全8操作の表示と「Test Request」からの `GET /api/health` 成功を確認。配信された `/openapi.yaml` は原本とバイト単位で一致し、`go test ./...` も成功。
+
+## OpenAPI移行後の検証
+
+| 検証 | 結果・範囲 |
+|---|---|
+| Compose `verify` | OpenAPIとDafnyの生成物が一致。Dafny 19件、変異検出、型誤用の拒否、Goテスト、vetが成功 |
+| Compose `integration` | PostgreSQL結合テスト5件成功 |
+| 実API | 全8操作の成功応答をOpenAPIと照合。停止した検証用Commandの再投入も成功。E2Eで入力拒否・冪等性・投影反映・ロールと所有者の検査を確認 |
+| Chrome | 顧客→倉庫→運送→顧客を操作し、税込2,376円、21ポイント加算、状態履歴、PDF、Mailpitの添付を確認 |
+
+起動済みCompose環境を再ビルドして検証した。空の環境からの初回起動とarm64は未検証。
+
 ## ドメインルールをDafnyへ移した後の再検証
 
 | 検証 | 結果・範囲 |

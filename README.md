@@ -20,6 +20,7 @@ docker compose ps
 `gateway`がhealthyになったら開きます。
 
 - アプリ: http://localhost:8088
+- APIリファレンス（Scalar）: http://localhost:8088/docs
 - メール確認（Mailpit）: http://localhost:8025
 
 初期化には少し時間がかかります。起動中の502は数秒待って再読み込みしてください。初期化に失敗した場合は以下で確認します。
@@ -160,8 +161,19 @@ Goテストのみなら`go test ./...`。`TEST_DATABASE_URL`が未設定のと�
 
 ## API
 
+[Scalar APIリファレンス](http://localhost:8088/docs)で8操作のパラメーター、入出力のスキーマ、応答コードを確認できます。「Test Request」でローカルAPIに送信できます。最初に `GET /api/bootstrap` で利用者IDを取得し、利用者の指定が必要な操作では `X-Actor-ID` に入力してください。Commandの送信には `Idempotency-Key` にもUUIDを指定します。
+
+[OpenAPIのYAML](http://localhost:8088/openapi.yaml)とScalar（v1.83.0）はGoアプリが配信します。APIリファレンスの閲覧とリクエスト送信に外部CDNは不要です。
+
+全8操作の契約は [api/openapi.yaml](api/openapi.yaml)（OpenAPI 3.1）です。契約を変更したら `go generate ./api` でGoのルーティング、入出力型、ハンドラーインターフェースを再生成します。生成器は `go.mod` の `tool` で固定し、`verify` で生成物との一致を確認します。ホストにGoを入れずに生成する場合は以下を実行します。
+
+```bash
+docker compose --profile test run --build --rm -v "$PWD:/src" verify go generate ./api
+```
+
 | メソッド・パス | 用途 |
 |---|---|
+| GET `/api/health` | DB接続確認 |
 | GET `/api/bootstrap` | 初期利用者・商品 |
 | GET `/api/state` | Queryモデル、処理結果、請求書情報 |
 | POST `/api/commands` | Commandの永続受付。`Idempotency-Key: UUID`必須 |
@@ -170,7 +182,7 @@ Goテストのみなら`go test ./...`。`TEST_DATABASE_URL`が未設定のと�
 | GET `/api/images/{id}` | S3画像 |
 | GET `/api/invoices/{id}` | 所有者・運用者のPDF取得 |
 
-利用者は`X-Actor-ID: UUID`で指定します。擬似ログインであり、本番認証には使えません。Command名とpayloadは`internal/app/commands.go`、APIを通した実例は`tests/e2e.py`にあります。同じキー・同じ内容は同じCommand、異なる内容は409です。
+利用者は`X-Actor-ID: UUID`で指定します。擬似ログインであり、本番認証には使えません。公開Commandの名前と入力項目はOpenAPIに定義し、形が合わないリクエストは受付前に拒否します。権限・在庫・遷移などの業務条件は非同期実行時に評価します。実例は `tests/e2e.py` にあります。同じキー・同じ内容は同じCommand、異なる内容は409です。
 
 ## Codexへの引継ぎ
 
@@ -180,6 +192,7 @@ Goテストのみなら`go test ./...`。`TEST_DATABASE_URL`が未設定のと�
 
 | ディレクトリ | 内容 |
 |---|---|
+| `api` | OpenAPI契約とGo生成設定 |
 | `formal` | Dafny仕様と検証対象ロジック |
 | `generated` | 生成GoとDafny runtime |
 | `internal/domain` | 集約と生成コードへの境界 |

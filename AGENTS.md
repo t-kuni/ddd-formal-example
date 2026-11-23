@@ -4,6 +4,8 @@
 
 企業向け卸業者の受注から配送完了を、DDD・型による保護・形式手法で検証するローカル専用アプリ。ユーザーの環境はUbuntu、Docker Compose利用可能。本番対応、実決済、実認証、実AWSへのデプロイは対象外。説明・資料・応答は日本語で簡潔にし、結論を先に書く。ASCII図は使わず、図にはMermaidを用いる。
 
+検証用リポジトリのため、後方互換の維持は要件としない。API・UI・データ形式を一体で見直し、全体の設計と検証のしやすさを優先する。
+
 このファイルは、以前の会話がなくても保守できるようにまとめたもの。実装詳細はコードを確認し、仕様変更時は関連資料も更新する。
 
 ## 最初に読む資料
@@ -23,6 +25,7 @@
 - リソースIDはUUID。SKU、追跡番号、受注番号は別の業務属性。
 - ID、金額、数量等は専用型に変換し、集約フィールドを公開しない。DTOを集約へ直接保存しない。Snapshotはコピーとする。
 - Goのゼロ値・enumは完全には型で防げない。入力境界・集約操作・DB復元の検査を維持する。
+- HTTP APIの原本は `api/openapi.yaml`。全APIのルーティングと入出力型を `go generate ./api` で生成し、生成コードは直接編集しない。
 - 形式検証対象のロジックは`formal/Domain.dfy`が原本。`generated/`を手で修正しない。手書きGoで同じ計算を複製しない。
 
 ## 業務ルールの要点
@@ -45,7 +48,7 @@
 | 永続化・CAS・投影 | `internal/store/store.go`, `schema.sql` |
 | 初期マスタ | `internal/store/seed.go` |
 | AWS SDK・SQS・S3・Scheduler初期化 | `internal/cloud/cloud.go` |
-| API・投影完了の判定 | `internal/web/api.go` |
+| HTTP契約・API・投影完了の判定 | `api/openapi.yaml`, `internal/web/api.go` |
 | UI | `internal/web/static/` |
 | Lambda・ローカルアダプター | `cmd/app/main.go` |
 | 実行構成 | `compose.yaml`, `deploy/` |
@@ -102,7 +105,7 @@ docker compose --profile test run --build --rm -v "$PWD:/src" verify ./scripts/g
 - 2026-11-23時点ではDockerデーモンがない環境で作成したため、Composeのイメージビルドと起動そのものは未検証。各実サービスを個別プロセスで起動したE2E、認証有効なエミュレーター接続、ブラウザ検証は成功。手元では最初にCompose起動を確認する。
 - arm64の実行は未検証。verifyはamd64版Dafnyを使用する。
 - スキーマは起動時SQLで初期化する簡易構成。既存DBを更新する変更では明示的な移行SQLを用意する。CREATE TABLE IF NOT EXISTSだけで既存列は変更されない。
-- JSONの構造や状態コードを変更する場合、既存集約と投影の復元互換性を考慮する。
+- JSONの構造や状態コードを変更する場合、既存データに必要な移行を判断する。データ削除には利用者の承認を得る。
 - 起動不具合を理由にデータを勝手に削除しない。`docker compose down -v`は破壊的リセット。
 - 初期開発環境固有の`.tools`やネイティブ起動スクリプトは配布物に含まない。ここに記載したComposeとリポジトリ内のスクリプトを使う。
 - 形式証明は業務コアのみ。DB・ネットワーク・手書きGo・UIまで数学的に証明済みとは説明しない。

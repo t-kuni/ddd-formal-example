@@ -15,6 +15,12 @@ if "$DAFNY" verify .build/Mutant.dfy > .build/mutation-result.txt 2>&1; then
 fi
 grep -q 'could not be proved' .build/mutation-result.txt
 printf 'Formal verification, generated-code consistency, mutation check: PASS\n'
+(
+ cd api
+ go tool oapi-codegen -config oapi-codegen.yaml -o ../.build/openapi.gen.go openapi.yaml
+)
+diff -u internal/web/contract/api.gen.go .build/openapi.gen.go
+printf 'OpenAPI generated-code consistency: PASS\n'
 ./scripts/typecheck.sh
 go test ./...
 go vet ./internal/... ./cmd/...

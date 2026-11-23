@@ -42,6 +42,10 @@ JPY整数、価格は税抜。商品合計にクーポン割引率を適用し�
 
 顧客・倉庫作業者・運送業者・オペレーターはseed済み。画面で利用者を切替。パスワードはないが、APIでロールと所有者を検査する。リソースIDはUUID。SKU・伝票番号などの業務コードは別属性。
 
+## HTTP契約
+
+`api/openapi.yaml` をHTTP契約の原本とする。固定版の `oapi-codegen` が `net/http` のルート、型付きハンドラー、入出力型を生成する。入力はミドルウェアで検証し、Commandは `type` ごとに必要な `payload` を `oneOf` で指定する。Queryの投影も `kind` ごとにスキーマを定義する。HTTPのDTOは `internal/web` で既存のアプリケーション入力へ変換し、業務ルールはドメイン層で評価する。
+
 ## CommandとQuery
 
 POST /api/commands はUUIDのIdempotency-Key、actor、type、payloadをDBに永続化して202を返す。同一キー・同一内容は同じ結果を返し、内容違いは409。Commandの受付時点では業務操作は未確定。画面はCommand完了と読み取りモデルへの反映を待つ。
