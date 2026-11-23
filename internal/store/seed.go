@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
 	"wholesale.local/orbit/internal/domain"
@@ -26,9 +25,15 @@ func (s *Store) Seed(ctx context.Context) error {
 		{ID: ID("operator"), Name: "運用 / 山本", Role: "operator", Email: "ops@orbit.example", Address: domain.Address{}},
 	}
 	for _, a := range actors {
-		b, _ := json.Marshal(a)
-		if _, e = tx.Exec(ctx, "INSERT INTO actors VALUES($1,$2) ON CONFLICT DO NOTHING", a.ID, b); e != nil {
+		if _, e = tx.Exec(ctx, "INSERT INTO actors(id,name,role,email) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING", a.ID, a.Name, a.Role, a.Email); e != nil {
 			return e
+		}
+		if a.Role == "customer" {
+			address := a.Address
+			if _, e = tx.Exec(ctx, `INSERT INTO customer_addresses(customer_id,company,recipient,postal,address,phone)
+				VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, a.ID, address.Company, address.Recipient, address.Postal, address.Text, address.Phone); e != nil {
+				return e
+			}
 		}
 	}
 	type item struct {
@@ -38,23 +43,15 @@ func (s *Store) Seed(ctx context.Context) error {
 	list := []item{{"P-1001", "オーガニックコーヒー豆 1kg", "飲料", "袋", "#bb8056", 2400, 80}, {"P-1002", "天然水 500ml × 24本", "飲料", "ケース", "#5aa6bd", 1680, 120}, {"P-2001", "再生紙コピー用紙 A4 500枚", "事務用品", "冊", "#8b9b8a", 580, 160}, {"P-2002", "クラフト紙袋 M 100枚", "包装資材", "セット", "#c4a477", 1350, 60}, {"P-3001", "ニトリル手袋 M 100枚", "衛生用品", "箱", "#8c9cc1", 980, 90}, {"P-3002", "業務用洗剤 5L", "衛生用品", "本", "#78aa98", 1980, 45}}
 	for _, x := range list {
 		id := ID(x.sku)
-		p := domain.Product{ID: id, SKU: x.sku, Name: x.name, Category: x.category, Unit: x.unit, Price: x.price, Image: "/api/images/" + id}
-		b, _ := json.Marshal(p)
 		svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 480 320"><rect width="480" height="320" fill="#f3f1eb"/><ellipse cx="240" cy="270" rx="100" ry="14" fill="#ddd9d0"/><rect x="157" y="65" width="166" height="200" rx="14" fill="%s"/><rect x="178" y="130" width="124" height="74" rx="3" fill="#fffaf0"/><text x="240" y="162" text-anchor="middle" font-family="sans-serif" font-size="18" fill="#293b35">ORBIT</text><text x="240" y="186" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#53665e">%s</text></svg>`, x.color, x.sku)
-		if _, e = tx.Exec(ctx, "INSERT INTO products VALUES($1,$2,$3) ON CONFLICT DO NOTHING", id, b, []byte(svg)); e != nil {
+		if _, e = tx.Exec(ctx, "INSERT INTO products(id,sku,name,category,unit,price,image) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING", id, x.sku, x.name, x.category, x.unit, x.price, []byte(svg)); e != nil {
 			return e
 		}
-		quantity, _ := domain.NewQuantity(x.stock)
-		stock, _ := domain.NewStock(quantity, domain.Quantity{})
-		body, _ := json.Marshal(stock)
-		if _, e = tx.Exec(ctx, "INSERT INTO aggregates VALUES('stock',$1,1,$2) ON CONFLICT DO NOTHING", id, body); e != nil {
+		if _, e = tx.Exec(ctx, "INSERT INTO inventory(product_id,version,on_hand,reserved) VALUES($1,1,$2,0) ON CONFLICT DO NOTHING", id, x.stock); e != nil {
 			return e
 		}
 	}
 	if _, e = tx.Exec(ctx, "INSERT INTO coupons(id,code,percent) VALUES($1,'WELCOME10',10),($2,'PARTNER5',5) ON CONFLICT DO NOTHING", ID("coupon/WELCOME10"), ID("coupon/PARTNER5")); e != nil {
-		return e
-	}
-	if _, e = tx.Exec(ctx, "INSERT INTO projections SELECT * FROM aggregates ON CONFLICT DO NOTHING"); e != nil {
 		return e
 	}
 	return tx.Commit(ctx)

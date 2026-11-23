@@ -26,7 +26,7 @@ services:
       POSTGRES_USER: orbit
       POSTGRES_PASSWORD: orbit
     volumes:
-      - pg-data:/var/lib/postgresql
+      - pg-normalized-v2-data:/var/lib/postgresql
     healthcheck:
       test: [CMD-SHELL, "pg_isready -U orbit -d orbit"]
       interval: 2s
@@ -124,6 +124,6 @@ services:
       retries: 30
 
 volumes:
-  pg-data:
+  pg-normalized-v2-data:
   aws-state:
   invoke-lock:

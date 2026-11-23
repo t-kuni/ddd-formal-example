@@ -4,14 +4,13 @@
 
 Go / DDD・値オブジェクトによる型保護 / Dafnyによる形式検証 / PostgreSQL / 非同期Command / 楽観ロック / CQRSを組み合わせています。商品検索、在庫引当付きカート、発注、擬似決済、集品、梱包、配送、異常時の保留・再配送・返送、ポイント、PDF請求書メールを扱います。
 
-検証結果と未検証事項は [docs/verification.md](docs/verification.md) を参照してください。Docker Compose起動自体はこの環境では未実行で、同じ構成要素を個別プロセスとして接続して検証しています。
+検証結果と未検証事項は [docs/verification.md](docs/verification.md) を参照してください。
 
 ## 起動
 
 UbuntuにDocker EngineとDocker Compose v2が入っていれば、GoやNode.jsをホストに入れる必要はありません。初回ビルドではコンテナ・Go依存・AWS Emulatorのダウンロードにインターネット接続が必要です。
 
 ```bash
-cd wholesale
 # compose.yaml があるディレクトリで実行
 docker compose up --build -d
 docker compose ps
@@ -58,7 +57,7 @@ AWSアカウント・アクセスキー・課金は不要です。実AWSには�
 | Go Lambda | AWS公式 Runtime Interface Emulator (RIE) |
 | API Gateway相当 | HTTPリクエストをLambdaイベントに変換する薄いGoアダプター |
 | SQS Event Source Mapping相当 | SQS受信、Lambda呼出し、成功時の削除を行うローカルアダプター |
-| 期限・再送・読み取り反映・メール送信 | SchedulerからSQS経由で起動するmaintenance処理 |
+| 期限・再送・メール送信 | SchedulerからSQS経由で起動するmaintenance処理 |
 | SMTPと受信箱 | Mailpit 1.34.0 |
 | 画面 | Goに埋め込んだHTML/CSS/JavaScript |
 
@@ -92,7 +91,8 @@ docker compose exec aws aws-emulator --version
 5. 運送業者へ切替え、追跡番号を入力し「運送開始」、最後に「配送完了」を選びます。
 6. 顧客に戻るとポイントと請求書PDFが確認できます。MailpitにPDF添付メールが届きます。
 
-操作は非同期です。「受付済み」だけでは業務操作は確定していません。画面は約1.5秒おきに処理結果を確認します。読み取りモデルへの反映が少し遅れる場合があります。
+操作は非同期です。「受付済み」だけでは業務操作は確定していません。画面は処理中のCommandを約1.5秒おきに確認し、完了後に表示中のQuery APIを再取得します。Commandの完了と業務テーブルの更新は同じトランザクションです。
+カタログで「カートに追加」を続けて押すと、押した順に1件ずつ処理します。
 
 ## 業務上の前提
 
@@ -123,7 +123,9 @@ docker compose up --build -d
 
 AWS Emulatorは停止するとS3/SQSなどの内容を失います。画像の元データと未処理CommandはPostgreSQLに保持しており、初期化と再送で復旧します。`docker compose restart aws`だけではなく、全体をdown/upしてください。
 
-すべての検証データを初期状態へ戻す場合:
+PostgreSQLのデータは `pg-normalized-v2-data` ボリュームに保存します。
+
+現行の検証データを初期状態へ戻す方法
 
 ```bash
 docker compose down -v
@@ -179,11 +181,11 @@ Goテストのみなら`go test ./...`。`TEST_DATABASE_URL`が未設定のと�
 
 ## API
 
-[Scalar APIリファレンス](http://localhost:8088/docs)で8操作のパラメーター、入出力のスキーマ、応答コードを確認できます。「Test Request」でローカルAPIに送信できます。最初に `GET /api/bootstrap` で利用者IDを取得し、利用者の指定が必要な操作では `X-Actor-ID` に入力してください。Commandの送信には `Idempotency-Key` にもUUIDを指定します。
+[Scalar APIリファレンス](http://localhost:8088/docs)でAPIのパラメーター、入出力のスキーマ、応答コードを確認できます。「Test Request」でローカルAPIに送信できます。最初に `GET /api/bootstrap` で利用者IDを取得し、利用者の指定が必要な操作では `X-Actor-ID` に入力してください。Commandの送信には `Idempotency-Key` にもUUIDを指定します。
 
 [OpenAPIのYAML](http://localhost:8088/openapi.yaml)とScalar（v1.83.0）はGoアプリが配信します。APIリファレンスの閲覧とリクエスト送信に外部CDNは不要です。
 
-全8操作の契約は [api/openapi.yaml](api/openapi.yaml)（OpenAPI 3.1）です。契約を変更したら `go generate ./api` でGoのルーティング、入出力型、ハンドラーインターフェースを再生成します。生成器は `go.mod` の `tool` で固定し、`verify` で生成物との一致を確認します。ホストにGoを入れずに生成する場合は以下を実行します。
+全APIの契約は [api/openapi.yaml](api/openapi.yaml)（OpenAPI 3.1）です。契約を変更したら `go generate ./api` でGoのルーティング、入出力型、ハンドラーインターフェースを再生成します。生成器は `go.mod` の `tool` で固定し、`verify` で生成物との一致を確認します。ホストにGoを入れずに生成する場合は以下を実行します。
 
 ```bash
 docker compose --profile test run --build --rm -v "$PWD:/src" verify go generate ./api
@@ -193,7 +195,10 @@ docker compose --profile test run --build --rm -v "$PWD:/src" verify go generate
 |---|---|
 | GET `/api/health` | DB接続確認 |
 | GET `/api/bootstrap` | 初期利用者・商品 |
-| GET `/api/state` | Queryモデル、処理結果、請求書情報 |
+| GET `/api/catalog` | 在庫、利用者のカート、DB時刻 |
+| GET `/api/orders` | 顧客・作業キュー・状態で絞り込む受注一覧と集計。1ページ25件 |
+| GET `/api/orders/{id}` | 対象受注の明細、配送、状態履歴、権限に応じた請求書情報 |
+| GET `/api/commands` | Commandの処理履歴。ID指定で対象1件 |
 | POST `/api/commands` | Commandの永続受付。`Idempotency-Key: UUID`必須 |
 | POST `/api/commands/{id}/retry` | 運用者によるdead Command再投入 |
 | POST `/api/maintenance` | 運用者による定期処理の即時投入 |

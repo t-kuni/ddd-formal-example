@@ -18,6 +18,7 @@ import (
 	"wholesale.local/orbit/internal/app"
 	"wholesale.local/orbit/internal/cloud"
 	"wholesale.local/orbit/internal/domain"
+	"wholesale.local/orbit/internal/store"
 	"wholesale.local/orbit/internal/web/contract"
 )
 
@@ -42,7 +43,7 @@ func writeError(w http.ResponseWriter, status int, err error) {
 func (a *API) actor(ctx context.Context, id string) (domain.Actor, error) {
 	var body []byte
 	var actor domain.Actor
-	err := a.Service.DB.Pool.QueryRow(ctx, "SELECT body FROM actors WHERE id::text=$1", id).Scan(&body)
+	err := a.Service.DB.Pool.QueryRow(ctx, store.ActorQuery+" WHERE a.id::text=$1", id).Scan(&body)
 	if err != nil {
 		return actor, errors.New("利用者を選択してください")
 	}
@@ -123,7 +124,7 @@ func loadMaster[T any](rows pgx.Rows) ([]T, error) {
 }
 
 func (a *API) GetBootstrap(ctx context.Context, _ contract.GetBootstrapRequestObject) (contract.GetBootstrapResponseObject, error) {
-	rows, err := a.Service.DB.Pool.Query(ctx, "SELECT body FROM actors ORDER BY body->>'name'")
+	rows, err := a.Service.DB.Pool.Query(ctx, store.ActorQuery+" ORDER BY a.name")
 	if err != nil {
 		return contract.GetBootstrap500JSONResponse(errorBody(err)), nil
 	}
@@ -131,7 +132,7 @@ func (a *API) GetBootstrap(ctx context.Context, _ contract.GetBootstrapRequestOb
 	if err != nil {
 		return contract.GetBootstrap500JSONResponse(errorBody(err)), nil
 	}
-	rows, err = a.Service.DB.Pool.Query(ctx, "SELECT body FROM products ORDER BY body->>'name'")
+	rows, err = a.Service.DB.Pool.Query(ctx, store.ProductQuery+" ORDER BY name")
 	if err != nil {
 		return contract.GetBootstrap500JSONResponse(errorBody(err)), nil
 	}
@@ -142,72 +143,9 @@ func (a *API) GetBootstrap(ctx context.Context, _ contract.GetBootstrapRequestOb
 	return contract.GetBootstrap200JSONResponse{Actors: actors, Products: products, Statuses: domain.StatusNames}, nil
 }
 
-func (a *API) GetState(ctx context.Context, request contract.GetStateRequestObject) (contract.GetStateResponseObject, error) {
-	actor, err := a.actor(ctx, value(request.Params.XActorID))
-	if err != nil {
-		return contract.GetState401JSONResponse(errorBody(err)), nil
-	}
-	views, positions, err := a.projections(ctx, actor)
-	if err != nil {
-		return contract.GetState500JSONResponse(errorBody(err)), nil
-	}
-	commands, err := a.commands(ctx, actor, positions)
-	if err != nil {
-		return contract.GetState500JSONResponse(errorBody(err)), nil
-	}
-	invoices, err := a.invoices(ctx, actor)
-	if err != nil {
-		return contract.GetState500JSONResponse(errorBody(err)), nil
-	}
-	var now int64
-	_ = a.Service.DB.Pool.QueryRow(ctx, "SELECT extract(epoch from clock_timestamp())::bigint").Scan(&now)
-	return contract.GetState200JSONResponse{Views: views, Commands: commands, Invoices: invoices, Now: now}, nil
-}
-
-func (a *API) projections(ctx context.Context, actor domain.Actor) ([]contract.Projection, map[string]int64, error) {
-	rows, err := a.Service.DB.Pool.Query(ctx, "SELECT kind,id,version,body FROM projections ORDER BY kind,id")
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-	list := []contract.Projection{}
-	positions := map[string]int64{}
-	for rows.Next() {
-		var view struct {
-			Kind    string          `json:"kind"`
-			ID      string          `json:"id"`
-			Version int64           `json:"version"`
-			Body    json.RawMessage `json:"body"`
-		}
-		if err := rows.Scan(&view.Kind, &view.ID, &view.Version, &view.Body); err != nil {
-			return nil, nil, err
-		}
-		positions[view.Kind+view.ID] = view.Version
-		if (view.Kind == "cart" || view.Kind == "loyalty") && actor.Role != "operator" && view.ID != actor.ID {
-			continue
-		}
-		if view.Kind == "order" && actor.Role == "customer" {
-			var order domain.Order
-			if err := json.Unmarshal(view.Body, &order); err != nil || order.Snapshot().CustomerID != actor.ID {
-				continue
-			}
-		}
-		data, err := json.Marshal(view)
-		if err != nil {
-			return nil, nil, err
-		}
-		var projection contract.Projection
-		if err := projection.UnmarshalJSON(data); err != nil {
-			return nil, nil, err
-		}
-		list = append(list, projection)
-	}
-	return list, positions, rows.Err()
-}
-
-func (a *API) commands(ctx context.Context, actor domain.Actor, positions map[string]int64) ([]contract.CommandRecord, error) {
-	const query = "SELECT id,actor_id,type,payload,status,result,error,attempts,created_at FROM commands WHERE actor_id=$1 OR $2='operator' ORDER BY created_at DESC LIMIT 50"
-	rows, err := a.Service.DB.Pool.Query(ctx, query, actor.ID, actor.Role)
+func (a *API) commands(ctx context.Context, actor domain.Actor, id *string) ([]contract.CommandRecord, error) {
+	const query = "SELECT id,actor_id,type,payload,status,result,error,attempts,created_at FROM commands WHERE (actor_id=$1 OR $2='operator') AND ($3::uuid IS NULL OR id=$3) ORDER BY created_at DESC,id DESC LIMIT 50"
+	rows, err := a.Service.DB.Pool.Query(ctx, query, actor.ID, actor.Role, id)
 	if err != nil {
 		return nil, err
 	}
@@ -227,34 +165,7 @@ func (a *API) commands(ctx context.Context, actor domain.Actor, positions map[st
 				return nil, err
 			}
 		}
-		c.Projected = c.Status == contract.Succeeded
-		if c.Result != nil && c.Result.Versions != nil {
-			for key, version := range *c.Result.Versions {
-				if positions[key] < version {
-					c.Projected = false
-					break
-				}
-			}
-		}
 		list = append(list, c)
-	}
-	return list, rows.Err()
-}
-
-func (a *API) invoices(ctx context.Context, actor domain.Actor) ([]contract.Invoice, error) {
-	const query = "SELECT id,order_id,sent_at IS NOT NULL,last_error FROM invoices WHERE customer_id=$1 OR $2='operator' ORDER BY created_at DESC"
-	rows, err := a.Service.DB.Pool.Query(ctx, query, actor.ID, actor.Role)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	list := []contract.Invoice{}
-	for rows.Next() {
-		var invoice contract.Invoice
-		if err := rows.Scan(&invoice.Id, &invoice.OrderId, &invoice.Sent, &invoice.Error); err != nil {
-			return nil, err
-		}
-		list = append(list, invoice)
 	}
 	return list, rows.Err()
 }
@@ -358,7 +269,7 @@ func (a *API) GetInvoice(ctx context.Context, request contract.GetInvoiceRequest
 		return contract.GetInvoice401JSONResponse(errorBody(err)), nil
 	}
 	var pdf []byte
-	err = a.Service.DB.Pool.QueryRow(ctx, "SELECT pdf FROM invoices WHERE id::text=$1 AND (customer_id=$2 OR $3='operator')", request.Id, actor.ID, actor.Role).Scan(&pdf)
+	err = a.Service.DB.Pool.QueryRow(ctx, "SELECT i.pdf FROM invoices i JOIN orders o ON o.id=i.order_id WHERE i.id::text=$1 AND (o.customer_id=$2 OR $3='operator')", request.Id, actor.ID, actor.Role).Scan(&pdf)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return contract.GetInvoice404JSONResponse{Error: "請求書が見つかりません"}, nil
 	}

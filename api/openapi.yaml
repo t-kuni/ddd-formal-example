@@ -34,10 +34,10 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
-  /api/state:
+  /api/catalog:
     get:
-      operationId: GetState
-      summary: 利用者が参照できる読み取りモデル
+      operationId: GetCatalog
+      summary: 商品カタログ・カート・在庫管理の現在状態
       parameters:
       - name: X-Actor-ID
         in: header
@@ -46,10 +46,10 @@ paths:
         description: 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
       responses:
         '200':
-          description: 読み取りモデルと処理履歴
+          description: 画面表示用データ
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/State'}
+              schema: {$ref: '#/components/schemas/CatalogState'}
         '400':
           description: HTTP入力が不正
           content:
@@ -65,7 +65,120 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+  /api/orders:
+    get:
+      operationId: GetOrders
+      summary: 受注一覧と集計
+      parameters:
+      - name: X-Actor-ID
+        in: header
+        required: false
+        schema: {type: string, format: uuid, x-go-type: string}
+        description: 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
+      - name: queue
+        in: query
+        schema: {type: string, enum: [warehouse, delivery]}
+      - name: status
+        in: query
+        schema: {type: integer, minimum: 0, maximum: 10}
+      - name: before
+        in: query
+        schema: {type: string, format: uuid, x-go-type: string}
+      responses:
+        '200':
+          description: 画面表示用データ
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrderPage'}
+        '400':
+          description: HTTP入力が不正
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401':
+          description: 利用者が不明
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '500':
+          description: DBの処理に失敗
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /api/orders/{id}:
+    get:
+      operationId: GetOrder
+      summary: 受注詳細と配送追跡
+      parameters:
+      - name: X-Actor-ID
+        in: header
+        required: false
+        schema: {type: string, format: uuid, x-go-type: string}
+        description: 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid, x-go-type: string}
+      responses:
+        '200':
+          description: 画面表示用データ
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrderDetail'}
+        '400':
+          description: HTTP入力が不正
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401':
+          description: 利用者が不明
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '500':
+          description: DBの処理に失敗
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '404':
+          description: 対象が見つからない
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
   /api/commands:
+    get:
+      operationId: GetCommands
+      summary: Commandの処理結果
+      parameters:
+      - name: X-Actor-ID
+        in: header
+        required: false
+        schema: {type: string, format: uuid, x-go-type: string}
+        description: 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
+      - name: id
+        in: query
+        schema: {type: string, format: uuid, x-go-type: string}
+      responses:
+        '200':
+          description: 画面表示用データ
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CommandList'}
+        '400':
+          description: HTTP入力が不正
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '401':
+          description: 利用者が不明
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '500':
+          description: DBの処理に失敗
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
     post:
       operationId: PostCommand
       summary: Commandを永続受付
@@ -86,7 +199,7 @@ paths:
             schema: {$ref: '#/components/schemas/SubmitCommand'}
       responses:
         '202':
-          description: 永続受付済み。処理結果と投影反映はstateで確認
+          description: 永続受付済み。処理結果はGET /api/commandsで確認
           content:
             application/json:
               schema: {$ref: '#/components/schemas/CommandAccepted'}
@@ -660,9 +773,6 @@ components:
         noop: {type: boolean}
         expired: {type: boolean}
         status: {type: integer}
-        versions:
-          type: object
-          additionalProperties: {type: integer, format: int64}
       additionalProperties: false
     CommandRecord:
       type: object
@@ -679,65 +789,66 @@ components:
         error: {type: string}
         attempts: {type: integer}
         createdAt: {type: string, format: date-time}
-        projected: {type: boolean}
-      required: [id, actorId, type, payload, status, result, error, attempts, createdAt, projected]
-    StockProjection:
+      required: [id, actorId, type, payload, status, result, error, attempts, createdAt]
+    CommandList:
+      type: array
+      items: {$ref: '#/components/schemas/CommandRecord'}
+    InventoryItem:
       type: object
       properties:
-        kind:
-          type: string
-          enum: [stock]
         id: {type: string, format: uuid, x-go-type: string}
         version: {type: integer, format: int64}
         body: {$ref: '#/components/schemas/Stock'}
-      required: [kind, id, version, body]
-    CartProjection:
+      required: [id, version, body]
+    CartState:
       type: object
       properties:
-        kind:
-          type: string
-          enum: [cart]
-        id: {type: string, format: uuid, x-go-type: string}
         version: {type: integer, format: int64}
         body: {$ref: '#/components/schemas/Cart'}
-      required: [kind, id, version, body]
-    OrderProjection:
+      required: [version, body]
+    CatalogState:
       type: object
       properties:
-        kind:
-          type: string
-          enum: [order]
-        id: {type: string, format: uuid, x-go-type: string}
-        version: {type: integer, format: int64}
-        body: {$ref: '#/components/schemas/Order'}
-      required: [kind, id, version, body]
-    LoyaltyProjection:
-      type: object
-      properties:
-        kind:
-          type: string
-          enum: [loyalty]
-        id: {type: string, format: uuid, x-go-type: string}
-        version: {type: integer, format: int64}
-        body: {$ref: '#/components/schemas/Loyalty'}
-      required: [kind, id, version, body]
-    Projection:
-      oneOf:
-      - {$ref: '#/components/schemas/StockProjection'}
-      - {$ref: '#/components/schemas/CartProjection'}
-      - {$ref: '#/components/schemas/OrderProjection'}
-      - {$ref: '#/components/schemas/LoyaltyProjection'}
-    State:
-      type: object
-      properties:
-        views:
+        inventory:
           type: array
-          items: {$ref: '#/components/schemas/Projection'}
-        commands:
-          type: array
-          items: {$ref: '#/components/schemas/CommandRecord'}
-        invoices:
-          type: array
-          items: {$ref: '#/components/schemas/Invoice'}
+          items: {$ref: '#/components/schemas/InventoryItem'}
+        cart: {$ref: '#/components/schemas/CartState'}
         now: {type: integer, format: int64}
-      required: [views, commands, invoices, now]
+      required: [inventory, now]
+    OrderSummary:
+      type: object
+      properties:
+        id: {type: string, format: uuid, x-go-type: string}
+        number: {type: string}
+        company: {type: string}
+        recipient: {type: string}
+        status: {type: integer}
+        createdAt: {type: string, format: date-time}
+        total: {type: integer, format: int64}
+        requestedDate: {type: string}
+      required: [id, number, company, recipient, status, createdAt, total, requestedDate]
+    OrderMetrics:
+      type: object
+      properties:
+        total: {type: integer, format: int64}
+        active: {type: integer, format: int64}
+        delivered: {type: integer, format: int64}
+        exceptions: {type: integer, format: int64}
+        points: {type: integer, format: int64}
+      required: [total, active, delivered, exceptions, points]
+    OrderPage:
+      type: object
+      properties:
+        orders:
+          type: array
+          items: {$ref: '#/components/schemas/OrderSummary'}
+        metrics: {$ref: '#/components/schemas/OrderMetrics'}
+        next: {type: string, format: uuid, x-go-type: string}
+      required: [orders, metrics]
+    OrderDetail:
+      type: object
+      properties:
+        version: {type: integer, format: int64}
+        order: {$ref: '#/components/schemas/Order'}
+        invoice: {$ref: '#/components/schemas/Invoice'}
+      required: [version, order]

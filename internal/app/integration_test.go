@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/google/uuid"
 	"os"
 	"os/exec"
@@ -53,14 +53,20 @@ func success(t *testing.T, c Command) {
 		t.Fatalf("%s: %s %s", c.Type, c.Status, c.Error)
 	}
 }
-func load(t *testing.T, s *Service, kind, id string, dst any) {
+func load(t *testing.T, s *Service, kind, id string, dst domain.RestorableAggregate) {
 	t.Helper()
-	var b []byte
-	if e := s.DB.Pool.QueryRow(context.Background(), "SELECT body FROM aggregates WHERE kind=$1 AND id=$2", kind, id).Scan(&b); e != nil {
-		t.Fatal(e)
+	ctx := context.Background()
+	tx, err := s.DB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if e := json.Unmarshal(b, dst); e != nil {
-		t.Fatal(e)
+	defer tx.Rollback(ctx)
+	unit := store.NewUnit(ctx, tx)
+	if err := unit.Load(kind, id, dst); err != nil {
+		t.Fatal(err)
+	}
+	if unit.Versions[kind+id] == 0 {
+		t.Fatalf("missing %s %s", kind, id)
 	}
 }
 func TestLifecycleAndIdempotency(t *testing.T) {
@@ -123,9 +129,6 @@ func TestLifecycleAndIdempotency(t *testing.T) {
 	if len(pdf) < 1000 || string(pdf[:4]) != "%PDF" {
 		t.Fatal("invalid PDF")
 	}
-	if e := s.DB.Project(ctx); e != nil {
-		t.Fatal(e)
-	}
 }
 func TestExpiryAndRollback(t *testing.T) {
 	s := testService(t)
@@ -154,12 +157,26 @@ func TestExpiryAndRollback(t *testing.T) {
 		t.Fatal("failed reservation changed stock")
 	}
 	past := time.Now().Unix() - 1
-	_, e := s.DB.Pool.Exec(ctx, `UPDATE aggregates SET body=jsonb_set(body,'{expires}',to_jsonb($2::bigint)),version=version+1 WHERE kind='cart' AND id=$1`, cid, past)
+	_, e := s.DB.Pool.Exec(ctx, `UPDATE carts SET expires_at=$2,version=version+1 WHERE customer_id=$1`, cid, past)
 	if e != nil {
 		t.Fatal(e)
 	}
-	success(t, run(t, s, "system", "cart.expire", Payload{CustomerID: cid, Expires: past}))
-	success(t, run(t, s, "system", "cart.expire", Payload{CustomerID: cid, Expires: past}))
+	if err := s.Expire(ctx); err != nil {
+		t.Fatal(err)
+	}
+	expiryID := stableID(fmt.Sprintf("expire/%s/%d", cid, past))
+	for range 2 {
+		if err := s.Process(ctx, expiryID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var status string
+	if err := s.DB.Pool.QueryRow(ctx, "SELECT status FROM commands WHERE id=$1", expiryID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "succeeded" {
+		t.Fatalf("scheduled expiry status = %s", status)
+	}
 	load(t, s, "stock", sku, &after)
 	if after.Snapshot().Reserved != before.Snapshot().Reserved-3 {
 		t.Fatal("incorrect release", before, after)

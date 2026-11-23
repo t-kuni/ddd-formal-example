@@ -1,65 +1,15 @@
-# 検証記録
+# 現行構成の検証
 
-検証日: 2026-11-23。サンプルデータのみを使用。
-
-## Scalar APIリファレンスの検証
-
-Composeを再ビルドし、Chromeで外部リクエストを遮断した状態で全8操作の表示と「Test Request」からの `GET /api/health` 成功を確認。配信された `/openapi.yaml` は原本とバイト単位で一致し、`go test ./...` も成功。
-
-Command受付の本文スキーマでは、Chromeで「One of」に全13種類のCommand名が表示され、`stock.adjust` の選択でリクエスト例が切り替わることを確認。Lambdaを再ビルドし、配信されたOpenAPIと原本の一致、`go generate ./api`、`go test ./...` を確認。PostgreSQL結合テストと業務フローのE2Eはこの変更では未実施。
-
-## OpenAPI移行後の検証
+検証環境はUbuntu amd64、Docker Compose、PostgreSQL 18.3、AWS Emulator 1.0.580、AWS Lambda RIE、Mailpit 1.34.0。
 
 | 検証 | 結果・範囲 |
 |---|---|
-| Compose `verify` | OpenAPIとDafnyの生成物が一致。Dafny 19件、変異検出、型誤用の拒否、Goテスト、vetが成功 |
-| Compose `integration` | PostgreSQL結合テスト5件成功 |
-| 実API | 全8操作の成功応答をOpenAPIと照合。停止した検証用Commandの再投入も成功。E2Eで入力拒否・冪等性・投影反映・ロールと所有者の検査を確認 |
-| Chrome | 顧客→倉庫→運送→顧客を操作し、税込2,376円、21ポイント加算、状態履歴、PDF、Mailpitの添付を確認 |
+| Compose `verify` | Dafny 19件、Dafny・OpenAPI生成物との差分なし、変異検出、型誤用のコンパイル拒否、Goテスト、vet |
+| Compose `integration` | PostgreSQL結合テスト5件。カート失効と古い期限の拒否、引当変更の原子性、楽観ロック、Command重複、配送完了・ポイント・PDF |
+| Compose起動 | 空のPostgreSQLボリュームから初期化し、AWS Emulator・Lambda・API・SQS workerが稼働 |
+| API E2E | S3画像、OpenAPI入力検証、SQS処理、在庫引当、倉庫・配送の例外系、Command完了直後のQuery、顧客間の所有権、請求書PDF、SMTP・Mailpit |
+| 受注一覧 | 実DBに同一発注日時の検証用行を用意し、25件のページング、UUIDによる順序、ステータス絞り込み、集計、顧客をまたいだカーソルの扱いを確認 |
+| カートの連続追加 | Chromeで前の処理結果が返る前に異なる3商品と同一商品を続けて押し、4回すべてが数量に反映されることを確認 |
+| Chrome | 顧客→倉庫→運送→顧客の操作で、税込2,376円、21ポイントの増分、追跡番号・状態履歴、請求書PDF、Mailpitの添付を確認 |
 
-起動済みCompose環境を再ビルドして検証した。空の環境からの初回起動とarm64は未検証。
-
-## ドメインルールをDafnyへ移した後の再検証
-
-| 検証 | 結果・範囲 |
-|---|---|
-| Compose `verify` | Dafny 4.11.0で19 verified、0 errors。生成物との一致、在庫実装の変異検出、型誤用の拒否、Goテスト、vetが成功 |
-| Go回帰テスト | 期限更新・差分と時刻のオーバーフロー拒否、および配送情報や履歴に不整合がある受注の復元拒否を確認 |
-| Compose `integration` | PostgreSQL結合テスト5件成功 |
-| API E2E | 稼働中のCompose構成でLambdaを再ビルド・再作成し、S3・引当・異常時の状態遷移・請求書PDF・メールを確認 |
-| Chrome | 顧客から倉庫・運送を経て顧客へ戻り、税込2,376円、21ポイント加算、状態履歴、PDF、Mailpitの添付を確認 |
-
-今回のCompose確認は起動済み環境で実施した。空の環境からの初回起動とarm64は未検証。
-
-## 初期開発時の実行結果
-
-| 検証 | 結果・範囲 |
-|---|---|
-| Dafny 4.11.0 | 10 verified, 0 errors。前提条件下の在庫・遷移・期限・金額の事後条件 |
-| 生成コード | 原本から再生成したGoとリポジトリの生成物が一致 |
-| 故意の誤実装 | 引当数量に余計な1を加えた変異を検証器が拒否 |
-| 型の誤用 | 商品ID→受注ID、金額→引当増減、非公開フィールドの直接変更がコンパイル失敗 |
-| Go単体テスト・vet | 成功。生成runtimeはvet対象外 |
-| 在庫の操作列 | 100シード×1000操作で不変条件・拒否時の不変性を確認 |
-| 状態遷移 | 11状態×13遷移先を独立した期待表と照合 |
-| PostgreSQL結合 | 5テスト成功。期限・ロール・取消・決済失敗・複数SKUの原子性・CAS競合 |
-| 同一Commandの競合 | 4つの子プロセスから同じCommandを実行し、在庫調整が1回だけ反映 |
-| AWS接続E2E | 実AWS EmulatorのS3/SQS、Go RIE、PostgreSQL、SMTPを通して成功 |
-| エミュレーター認証 | auth on・生成資格情報・CA証明書によるAPI E2E成功。auth offでも確認 |
-| ブラウザ | 商品検索・画像、引当、発注、擬似決済、集品、保留・再開、梱包、配送失敗・再配送・完了、ポイント、PDF、Mailpit添付を確認 |
-| カート失効 | 検証用カートの期限を過去へ変更し、Schedulerの定期処理による引当解放を確認 |
-| 型保護後の再確認 | 全自動テストとAPI E2Eを再実行。ブラウザでも発注→配送完了、21ポイント、税込2376円、請求書・メール送信済みを確認 |
-
-## 初期開発時の実行環境と未検証事項
-
-Dockerデーモンがない検証環境のため、Composeのビルド・起動そのものは未実行。Compose YAMLの解析は実施した。代わりに、PostgreSQL 18.3、AWS Emulator 1.0.580、AWS公式RIE、Mailpit 1.34.0、Go 1.27.4を個別プロセスとして起動し、実サービスの連携を検証した。
-
-Dockerイメージのビルド、Composeのネットワーク名前空間・共有ボリューム、arm64環境は利用者のUbuntu環境で確認が必要。AWS EmulatorのLTS/latestは変動するため、将来の版で同じ動作を保証するものではない。
-
-形式的に証明した範囲はDafnyの純粋な業務コア。手書きのGoアダプター、DBトランザクション、SQL、AWS SDK、SMTP、ブラウザまでを一括で数学的に証明したわけではない。これらは結合テストとE2Eで検証している。コンパイラー・生成runtime・検証器も信頼基盤に含まれる。
-
-SMTP送信はat-least-onceで、配送完了後のポイントと請求書レコード作成はDBトランザクションとCommand冪等性で重複を防ぐ。メールの重複可能性まで消えるわけではない。
-
-## Adminer導入時の検証
-
-Composeの構成検証とAdminerの起動に成功。稼働中のPostgreSQLにAdminerからログインし、テーブル一覧と `products` のデータ画面をHTTP経由で確認した。ブラウザでの手動操作と業務フローの再検証は未実施。
+arm64は未検証。形式証明の対象はDafnyの業務コア。Goの永続化処理、DB、外部サービス、ブラウザは結合テストとE2Eで検証する。

@@ -14,6 +14,7 @@ import (
 	"os"
 	"time"
 	"wholesale.local/orbit/internal/domain"
+	"wholesale.local/orbit/internal/store"
 )
 
 //go:embed fonts/BIZUDGothic-Regular.ttf
@@ -46,7 +47,7 @@ func (s *Service) SendInvoice(ctx context.Context) error {
 	var id, customer string
 	var pdf []byte
 	// A bounded lease prevents concurrent senders; SMTP can still duplicate after acceptance + crash.
-	e := s.DB.Pool.QueryRow(ctx, `UPDATE invoices SET lease_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=(SELECT id FROM invoices WHERE sent_at IS NULL AND (lease_until IS NULL OR lease_until<now()) ORDER BY created_at LIMIT 1) AND sent_at IS NULL AND (lease_until IS NULL OR lease_until<now()) RETURNING id,customer_id,pdf`).Scan(&id, &customer, &pdf)
+	e := s.DB.Pool.QueryRow(ctx, `UPDATE invoices SET lease_until=now()+interval '2 minutes',attempts=attempts+1 WHERE id=(SELECT id FROM invoices WHERE sent_at IS NULL AND (lease_until IS NULL OR lease_until<now()) ORDER BY created_at LIMIT 1) AND sent_at IS NULL AND (lease_until IS NULL OR lease_until<now()) RETURNING id,(SELECT customer_id FROM orders WHERE orders.id=invoices.order_id),pdf`).Scan(&id, &customer, &pdf)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil
 	}
@@ -55,7 +56,7 @@ func (s *Service) SendInvoice(ctx context.Context) error {
 	}
 	var b []byte
 	var a domain.Actor
-	e = s.DB.Pool.QueryRow(ctx, "SELECT body FROM actors WHERE id=$1", customer).Scan(&b)
+	e = s.DB.Pool.QueryRow(ctx, store.ActorQuery+" WHERE a.id=$1", customer).Scan(&b)
 	if e != nil {
 		return e
 	}
@@ -83,31 +84,26 @@ func (s *Service) SendInvoice(ctx context.Context) error {
 	return e
 }
 func (s *Service) Expire(ctx context.Context) error {
-	rows, e := s.DB.Pool.Query(ctx, `SELECT id,body FROM aggregates WHERE kind='cart' AND (body->>'expires')::bigint<=extract(epoch from now())::bigint AND body->'items'<>'{}'::jsonb`)
+	rows, e := s.DB.Pool.Query(ctx, `SELECT customer_id,expires_at FROM carts c WHERE expires_at<=floor(extract(epoch from now()))::bigint AND EXISTS (SELECT 1 FROM cart_items WHERE customer_id=c.customer_id)`)
 	if e != nil {
 		return e
 	}
 	var list []Command
 	for rows.Next() {
 		var id string
-		var b []byte
-		if e = rows.Scan(&id, &b); e != nil {
+		var expires int64
+		if e = rows.Scan(&id, &expires); e != nil {
 			rows.Close()
 			return e
 		}
-		var c domain.Cart
-		if e = json.Unmarshal(b, &c); e != nil {
-			rows.Close()
-			return e
-		}
-		list = append(list, Command{ID: stableID(fmt.Sprintf("expire/%s/%d", id, c.Snapshot().Expires)), ActorID: stableID("system"), Type: "cart.expire", Payload: Payload{CustomerID: id, Expires: c.Snapshot().Expires}})
+		list = append(list, Command{ID: stableID(fmt.Sprintf("expire/%s/%d", id, expires)), ActorID: stableID("system"), Type: "cart.expire", Payload: Payload{CustomerID: id, Expires: expires}})
 	}
 	e = rows.Err()
 	rows.Close()
 	if e != nil {
 		return e
 	}
-	rows, e = s.DB.Pool.Query(ctx, `SELECT id FROM aggregates WHERE kind='order' AND body->>'status'='0' AND (body->>'createdAt')::timestamptz<now()-interval '15 minutes'`)
+	rows, e = s.DB.Pool.Query(ctx, `SELECT id FROM orders WHERE status=0 AND created_at<now()-interval '15 minutes'`)
 	if e != nil {
 		return e
 	}

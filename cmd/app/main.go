@@ -84,9 +84,6 @@ func (r *runtime) handle(ctx context.Context, ev event) (any, error) {
 			e = r.maintenance(ctx)
 		} else {
 			e = r.s.Process(ctx, record.Body)
-			if e == nil {
-				e = r.a.Tick(ctx)
-			}
 		}
 		if e != nil {
 			log.Printf("record %s: %v", record.MessageId, e)
@@ -100,9 +97,6 @@ func (r *runtime) maintenance(ctx context.Context) error {
 		return e
 	}
 	if e := r.a.Dispatch(ctx, r.s.DB); e != nil {
-		return e
-	}
-	if e := r.s.DB.Project(ctx); e != nil {
 		return e
 	}
 	return r.s.SendInvoice(ctx)

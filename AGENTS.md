@@ -4,7 +4,7 @@
 
 企業向け卸業者の受注から配送完了を、DDD・型による保護・形式手法で検証するローカル専用アプリ。ユーザーの環境はUbuntu、Docker Compose利用可能。本番対応、実決済、実認証、実AWSへのデプロイは対象外。説明・資料・応答は日本語で簡潔にし、結論を先に書く。ASCII図は使わず、図にはMermaidを用いる。
 
-検証用リポジトリのため、後方互換の維持は要件としない。API・UI・データ形式を一体で見直し、全体の設計と検証のしやすさを優先する。
+検証用リポジトリのため、後方互換の維持と既存のローカル検証データの保持は要件としない。API・UI・データ形式を一体で見直し、全体の設計と検証のしやすさを優先する。
 
 このファイルは、以前の会話がなくても保守できるようにまとめたもの。実装詳細はコードを確認し、仕様変更時は関連資料も更新する。
 
@@ -13,12 +13,12 @@
 1. `README.md`: 起動、利用者、操作、停止、テスト、制約。
 2. `docs/design.md`: 集約、整合性、型、技術選定の理由。
 3. `docs/workflow.md`: 正常・異常系の状態遷移。
-4. `docs/verification.md`: 実施済みの検証と未検証事項。過去の成功を今回の成功として報告しない。
+4. `docs/verification.md`: 現行構成の検証結果と未検証事項。
 
 ## 維持する設計上の条件
 
 - Go、PostgreSQL、公式`aws/aws-emulator`を使う。LocalStackに置換しない。
-- Commandは永続受付後にSQS経由で非同期実行し、冪等にする。Queryは結果整合の読み取りモデル。
+- Commandは永続受付後にSQS経由で非同期実行し、冪等にする。Queryは用途別APIで正規化テーブルのコミット済みデータを直接読む。
 - 業務Commandの非同期化にアプリケーションのgoroutineを使わない。標準ライブラリ・DBドライバー・SDK内部のgoroutineは許容する。
 - 集約を取得し、ドメイン操作と不変条件検査を行い、version比較による楽観ロックで保存する。処理効率より整合性を優先。
 - 複数集約をまたぐ引当・受注・ポイントの変更は、必要に応じ同一DBトランザクションに含める。
@@ -45,18 +45,18 @@
 | 値オブジェクト・集約 | `internal/domain/values.go`, `types.go`, `aggregate.go` |
 | Command受付・冪等性・業務処理 | `internal/app/commands.go` |
 | 請求書・SMTP | `internal/app/invoice.go` |
-| 永続化・CAS・投影 | `internal/store/store.go`, `schema.sql` |
+| 正規化スキーマ・集約保存・楽観ロック | `internal/store/schema.sql`, `aggregates.go` |
 | 初期マスタ | `internal/store/seed.go` |
 | AWS SDK・SQS・S3・Scheduler初期化 | `internal/cloud/cloud.go` |
-| HTTP契約・API・投影完了の判定 | `api/openapi.yaml`, `internal/web/api.go` |
+| HTTP契約・画面別Query | `api/openapi.yaml`, `internal/web/query.go`, `internal/store/order_details.go` |
 | UI | `internal/web/static/` |
 | Lambda・ローカルアダプター | `cmd/app/main.go` |
 | 実行構成 | `compose.yaml`, `deploy/` |
 | PostgreSQLのブラウザ閲覧 | `compose.yaml` の `adminer`、接続情報は `README.md` |
 
-集約スナップショットが正本であり、Event Sourcingではない。Commandの完了、集約更新、projection_eventsの追加は同じトランザクション。SQS送信に失敗してもDBの未処理Commandから再送する。投影はversionを比較し、古いイベントで上書きしない。
+正本は在庫・カート・受注・配送・ポイント等の正規化テーブル。Commandの完了と業務更新は同じDBトランザクションで確定する。受注の現在状態を受注行に持ち、追跡機能の状態遷移は別テーブルへ追記する。SQS送信に失敗した未処理CommandはDBから再送する。
 
-画面はCommandの`succeeded`だけでなく`projected`も待つ。ここを省くと直後の操作が古いexpected versionで拒否される（初期検証で修正した不具合）。
+画面はCommandの `succeeded` を確認してから表示中のQueryを取り直す。受注一覧はDBでの絞り込みとページング、受注詳細はGORMの関連読み込みを使う。スキーマは `schema.sql` を原本とする。
 
 ## ローカルAWSの注意
 
@@ -101,14 +101,11 @@ docker compose --profile test run --build --rm -v "$PWD:/src" verify ./scripts/g
 
 画面や業務フローを変更した場合は、利用可能なブラウザ操作機能で顧客→倉庫→運送→顧客を確認する。税込額・ポイント・履歴・PDFとMailpitも確認。不可能なら未実施と明記する。
 
-## 引継ぎ時の未確認事項・復旧
+## 実行上の制約・復旧
 
-- 2026-11-23時点ではDockerデーモンがない環境で作成したため、Composeのイメージビルドと起動そのものは未検証。各実サービスを個別プロセスで起動したE2E、認証有効なエミュレーター接続、ブラウザ検証は成功。手元では最初にCompose起動を確認する。
 - arm64の実行は未検証。verifyはamd64版Dafnyを使用する。
-- スキーマは起動時SQLで初期化する簡易構成。既存DBを更新する変更では明示的な移行SQLを用意する。CREATE TABLE IF NOT EXISTSだけで既存列は変更されない。
-- JSONの構造や状態コードを変更する場合、既存データに必要な移行を判断する。データ削除には利用者の承認を得る。
-- 起動不具合を理由にデータを勝手に削除しない。`docker compose down -v`は破壊的リセット。
-- 初期開発環境固有の`.tools`やネイティブ起動スクリプトは配布物に含まない。ここに記載したComposeとリポジトリ内のスクリプトを使う。
+- スキーマは起動時SQLで初期化する。スキーマを変更したときは、既存のローカル検証データを破棄し、空のDBから初期化してよい。データ移行SQLは不要。
+- PostgreSQLのボリュームは `pg-normalized-v2-data`。DBだけを初期化するときは対象のPostgreSQLボリュームに限定する。
 - 形式証明は業務コアのみ。DB・ネットワーク・手書きGo・UIまで数学的に証明済みとは説明しない。
 
 修正後の報告には変更点、実行した検証、未検証事項を含める。設計や起動方法が変わればREADME・docs・このファイルを更新する。

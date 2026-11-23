@@ -21,37 +21,22 @@ import (
 
 // Defines values for ActorRole.
 const (
-	Carrier   ActorRole = "carrier"
-	Customer  ActorRole = "customer"
-	Operator  ActorRole = "operator"
-	Warehouse ActorRole = "warehouse"
+	ActorRoleCarrier   ActorRole = "carrier"
+	ActorRoleCustomer  ActorRole = "customer"
+	ActorRoleOperator  ActorRole = "operator"
+	ActorRoleWarehouse ActorRole = "warehouse"
 )
 
 // Valid indicates whether the value is a known member of the ActorRole enum.
 func (e ActorRole) Valid() bool {
 	switch e {
-	case Carrier:
+	case ActorRoleCarrier:
 		return true
-	case Customer:
+	case ActorRoleCustomer:
 		return true
-	case Operator:
+	case ActorRoleOperator:
 		return true
-	case Warehouse:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for CartProjectionKind.
-const (
-	CartProjectionKindCart CartProjectionKind = "cart"
-)
-
-// Valid indicates whether the value is a known member of the CartProjectionKind enum.
-func (e CartProjectionKind) Valid() bool {
-	switch e {
-	case CartProjectionKindCart:
+	case ActorRoleWarehouse:
 		return true
 	default:
 		return false
@@ -127,51 +112,6 @@ func (e CommandType) Valid() bool {
 	case CommandTypeOrderReturn:
 		return true
 	case CommandTypeStockAdjust:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for LoyaltyProjectionKind.
-const (
-	LoyaltyProjectionKindLoyalty LoyaltyProjectionKind = "loyalty"
-)
-
-// Valid indicates whether the value is a known member of the LoyaltyProjectionKind enum.
-func (e LoyaltyProjectionKind) Valid() bool {
-	switch e {
-	case LoyaltyProjectionKindLoyalty:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for OrderProjectionKind.
-const (
-	OrderProjectionKindOrder OrderProjectionKind = "order"
-)
-
-// Valid indicates whether the value is a known member of the OrderProjectionKind enum.
-func (e OrderProjectionKind) Valid() bool {
-	switch e {
-	case OrderProjectionKindOrder:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for StockProjectionKind.
-const (
-	StockProjectionKindStock StockProjectionKind = "stock"
-)
-
-// Valid indicates whether the value is a known member of the StockProjectionKind enum.
-func (e StockProjectionKind) Valid() bool {
-	switch e {
-	case StockProjectionKindStock:
 		return true
 	default:
 		return false
@@ -373,6 +313,24 @@ func (e SubmitCommand12Type) Valid() bool {
 	}
 }
 
+// Defines values for GetOrdersParamsQueue.
+const (
+	GetOrdersParamsQueueDelivery  GetOrdersParamsQueue = "delivery"
+	GetOrdersParamsQueueWarehouse GetOrdersParamsQueue = "warehouse"
+)
+
+// Valid indicates whether the value is a known member of the GetOrdersParamsQueue enum.
+func (e GetOrdersParamsQueue) Valid() bool {
+	switch e {
+	case GetOrdersParamsQueueDelivery:
+		return true
+	case GetOrdersParamsQueueWarehouse:
+		return true
+	default:
+		return false
+	}
+}
+
 // Accepted defines model for Accepted.
 type Accepted struct {
 	Accepted bool `json:"accepted"`
@@ -420,22 +378,27 @@ type Cart struct {
 	Items      map[string]int64 `json:"items"`
 }
 
-// CartProjection defines model for CartProjection.
-type CartProjection struct {
-	Body    Cart               `json:"body"`
-	Id      string             `json:"id"`
-	Kind    CartProjectionKind `json:"kind"`
-	Version int64              `json:"version"`
+// CartState defines model for CartState.
+type CartState struct {
+	Body    Cart  `json:"body"`
+	Version int64 `json:"version"`
 }
 
-// CartProjectionKind defines model for CartProjection.Kind.
-type CartProjectionKind string
+// CatalogState defines model for CatalogState.
+type CatalogState struct {
+	Cart      *CartState      `json:"cart,omitempty"`
+	Inventory []InventoryItem `json:"inventory"`
+	Now       int64           `json:"now"`
+}
 
 // CommandAccepted defines model for CommandAccepted.
 type CommandAccepted struct {
 	Id     string        `json:"id"`
 	Status CommandStatus `json:"status"`
 }
+
+// CommandList defines model for CommandList.
+type CommandList = []CommandRecord
 
 // CommandPayload defines model for CommandPayload.
 type CommandPayload struct {
@@ -471,7 +434,6 @@ type CommandRecord struct {
 	Error     string         `json:"error"`
 	Id        string         `json:"id"`
 	Payload   CommandPayload `json:"payload"`
-	Projected bool           `json:"projected"`
 	Result    *CommandResult `json:"result"`
 	Status    CommandStatus  `json:"status"`
 	Type      string         `json:"type"`
@@ -479,13 +441,12 @@ type CommandRecord struct {
 
 // CommandResult defines model for CommandResult.
 type CommandResult struct {
-	CustomerId *string           `json:"customerId,omitempty"`
-	Expired    *bool             `json:"expired,omitempty"`
-	Noop       *bool             `json:"noop,omitempty"`
-	OrderId    *string           `json:"orderId,omitempty"`
-	ProductId  *string           `json:"productId,omitempty"`
-	Status     *int              `json:"status,omitempty"`
-	Versions   *map[string]int64 `json:"versions,omitempty"`
+	CustomerId *string `json:"customerId,omitempty"`
+	Expired    *bool   `json:"expired,omitempty"`
+	Noop       *bool   `json:"noop,omitempty"`
+	OrderId    *string `json:"orderId,omitempty"`
+	ProductId  *string `json:"productId,omitempty"`
+	Status     *int    `json:"status,omitempty"`
 }
 
 // CommandStatus defines model for CommandStatus.
@@ -513,6 +474,13 @@ type History struct {
 	To    int       `json:"to"`
 }
 
+// InventoryItem defines model for InventoryItem.
+type InventoryItem struct {
+	Body    Stock  `json:"body"`
+	Id      string `json:"id"`
+	Version int64  `json:"version"`
+}
+
 // Invoice defines model for Invoice.
 type Invoice struct {
 	Error   string `json:"error"`
@@ -530,22 +498,6 @@ type Line struct {
 	Sku       string `json:"sku"`
 	Unit      string `json:"unit"`
 }
-
-// Loyalty defines model for Loyalty.
-type Loyalty struct {
-	Points int64 `json:"points"`
-}
-
-// LoyaltyProjection defines model for LoyaltyProjection.
-type LoyaltyProjection struct {
-	Body    Loyalty               `json:"body"`
-	Id      string                `json:"id"`
-	Kind    LoyaltyProjectionKind `json:"kind"`
-	Version int64                 `json:"version"`
-}
-
-// LoyaltyProjectionKind defines model for LoyaltyProjection.Kind.
-type LoyaltyProjectionKind string
 
 // Order defines model for Order.
 type Order struct {
@@ -573,16 +525,40 @@ type Order struct {
 	WorkerId        string    `json:"workerId"`
 }
 
-// OrderProjection defines model for OrderProjection.
-type OrderProjection struct {
-	Body    Order               `json:"body"`
-	Id      string              `json:"id"`
-	Kind    OrderProjectionKind `json:"kind"`
-	Version int64               `json:"version"`
+// OrderDetail defines model for OrderDetail.
+type OrderDetail struct {
+	Invoice *Invoice `json:"invoice,omitempty"`
+	Order   Order    `json:"order"`
+	Version int64    `json:"version"`
 }
 
-// OrderProjectionKind defines model for OrderProjection.Kind.
-type OrderProjectionKind string
+// OrderMetrics defines model for OrderMetrics.
+type OrderMetrics struct {
+	Active     int64 `json:"active"`
+	Delivered  int64 `json:"delivered"`
+	Exceptions int64 `json:"exceptions"`
+	Points     int64 `json:"points"`
+	Total      int64 `json:"total"`
+}
+
+// OrderPage defines model for OrderPage.
+type OrderPage struct {
+	Metrics OrderMetrics   `json:"metrics"`
+	Next    *string        `json:"next,omitempty"`
+	Orders  []OrderSummary `json:"orders"`
+}
+
+// OrderSummary defines model for OrderSummary.
+type OrderSummary struct {
+	Company       string    `json:"company"`
+	CreatedAt     time.Time `json:"createdAt"`
+	Id            string    `json:"id"`
+	Number        string    `json:"number"`
+	Recipient     string    `json:"recipient"`
+	RequestedDate string    `json:"requestedDate"`
+	Status        int       `json:"status"`
+	Total         int64     `json:"total"`
+}
 
 // Product defines model for Product.
 type Product struct {
@@ -595,35 +571,11 @@ type Product struct {
 	Unit     string `json:"unit"`
 }
 
-// Projection defines model for Projection.
-type Projection struct {
-	union json.RawMessage
-}
-
-// State defines model for State.
-type State struct {
-	Commands []CommandRecord `json:"commands"`
-	Invoices []Invoice       `json:"invoices"`
-	Now      int64           `json:"now"`
-	Views    []Projection    `json:"views"`
-}
-
 // Stock defines model for Stock.
 type Stock struct {
 	OnHand   int64 `json:"onHand"`
 	Reserved int64 `json:"reserved"`
 }
-
-// StockProjection defines model for StockProjection.
-type StockProjection struct {
-	Body    Stock               `json:"body"`
-	Id      string              `json:"id"`
-	Kind    StockProjectionKind `json:"kind"`
-	Version int64               `json:"version"`
-}
-
-// StockProjectionKind defines model for StockProjection.Kind.
-type StockProjectionKind string
 
 // SubmitCommand defines model for SubmitCommand.
 type SubmitCommand struct {
@@ -810,6 +762,20 @@ type SubmitCommand12 struct {
 // SubmitCommand12Type defines model for SubmitCommand.12.Type.
 type SubmitCommand12Type string
 
+// GetCatalogParams defines parameters for GetCatalog.
+type GetCatalogParams struct {
+	// XActorID 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
+	XActorID *string `json:"X-Actor-ID,omitempty"`
+}
+
+// GetCommandsParams defines parameters for GetCommands.
+type GetCommandsParams struct {
+	Id *string `form:"id,omitempty" json:"id,omitempty"`
+
+	// XActorID 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
+	XActorID *string `json:"X-Actor-ID,omitempty"`
+}
+
 // PostCommandParams defines parameters for PostCommand.
 type PostCommandParams struct {
 	// XActorID 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
@@ -835,128 +801,27 @@ type PostMaintenanceParams struct {
 	XActorID *string `json:"X-Actor-ID,omitempty"`
 }
 
-// GetStateParams defines parameters for GetState.
-type GetStateParams struct {
+// GetOrdersParams defines parameters for GetOrders.
+type GetOrdersParams struct {
+	Queue  *GetOrdersParamsQueue `form:"queue,omitempty" json:"queue,omitempty"`
+	Status *int                  `form:"status,omitempty" json:"status,omitempty"`
+	Before *string               `form:"before,omitempty" json:"before,omitempty"`
+
+	// XActorID 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
+	XActorID *string `json:"X-Actor-ID,omitempty"`
+}
+
+// GetOrdersParamsQueue defines parameters for GetOrders.
+type GetOrdersParamsQueue string
+
+// GetOrderParams defines parameters for GetOrder.
+type GetOrderParams struct {
 	// XActorID 利用者のUUID。未指定の場合は操作に応じて401または403を返す。
 	XActorID *string `json:"X-Actor-ID,omitempty"`
 }
 
 // PostCommandJSONRequestBody defines body for PostCommand for application/json ContentType.
 type PostCommandJSONRequestBody = SubmitCommand
-
-// AsStockProjection returns the union data inside the Projection as a StockProjection
-func (t Projection) AsStockProjection() (StockProjection, error) {
-	var body StockProjection
-	err := runtime.JSONUnmarshal(t.union, &body)
-	return body, err
-}
-
-// FromStockProjection overwrites any union data inside the Projection as the provided StockProjection
-func (t *Projection) FromStockProjection(v StockProjection) error {
-	b, err := runtime.JSONMarshal(v)
-	t.union = b
-	return err
-}
-
-// MergeStockProjection performs a merge with any union data inside the Projection, using the provided StockProjection
-func (t *Projection) MergeStockProjection(v StockProjection) error {
-	b, err := runtime.JSONMarshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsCartProjection returns the union data inside the Projection as a CartProjection
-func (t Projection) AsCartProjection() (CartProjection, error) {
-	var body CartProjection
-	err := runtime.JSONUnmarshal(t.union, &body)
-	return body, err
-}
-
-// FromCartProjection overwrites any union data inside the Projection as the provided CartProjection
-func (t *Projection) FromCartProjection(v CartProjection) error {
-	b, err := runtime.JSONMarshal(v)
-	t.union = b
-	return err
-}
-
-// MergeCartProjection performs a merge with any union data inside the Projection, using the provided CartProjection
-func (t *Projection) MergeCartProjection(v CartProjection) error {
-	b, err := runtime.JSONMarshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsOrderProjection returns the union data inside the Projection as a OrderProjection
-func (t Projection) AsOrderProjection() (OrderProjection, error) {
-	var body OrderProjection
-	err := runtime.JSONUnmarshal(t.union, &body)
-	return body, err
-}
-
-// FromOrderProjection overwrites any union data inside the Projection as the provided OrderProjection
-func (t *Projection) FromOrderProjection(v OrderProjection) error {
-	b, err := runtime.JSONMarshal(v)
-	t.union = b
-	return err
-}
-
-// MergeOrderProjection performs a merge with any union data inside the Projection, using the provided OrderProjection
-func (t *Projection) MergeOrderProjection(v OrderProjection) error {
-	b, err := runtime.JSONMarshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsLoyaltyProjection returns the union data inside the Projection as a LoyaltyProjection
-func (t Projection) AsLoyaltyProjection() (LoyaltyProjection, error) {
-	var body LoyaltyProjection
-	err := runtime.JSONUnmarshal(t.union, &body)
-	return body, err
-}
-
-// FromLoyaltyProjection overwrites any union data inside the Projection as the provided LoyaltyProjection
-func (t *Projection) FromLoyaltyProjection(v LoyaltyProjection) error {
-	b, err := runtime.JSONMarshal(v)
-	t.union = b
-	return err
-}
-
-// MergeLoyaltyProjection performs a merge with any union data inside the Projection, using the provided LoyaltyProjection
-func (t *Projection) MergeLoyaltyProjection(v LoyaltyProjection) error {
-	b, err := runtime.JSONMarshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t Projection) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *Projection) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
 
 // adoptUnion reconciles SubmitCommand's own fields with the union data b that From*
 // or Merge* just put in place of previous.
@@ -1491,6 +1356,12 @@ type ServerInterface interface {
 	// GetBootstrap 初期マスタ
 	// (GET /api/bootstrap)
 	GetBootstrap(w http.ResponseWriter, r *http.Request)
+	// GetCatalog 商品カタログ・カート・在庫管理の現在状態
+	// (GET /api/catalog)
+	GetCatalog(w http.ResponseWriter, r *http.Request, params GetCatalogParams)
+	// GetCommands Commandの処理結果
+	// (GET /api/commands)
+	GetCommands(w http.ResponseWriter, r *http.Request, params GetCommandsParams)
 	// PostCommand Commandを永続受付
 	// (POST /api/commands)
 	PostCommand(w http.ResponseWriter, r *http.Request, params PostCommandParams)
@@ -1509,9 +1380,12 @@ type ServerInterface interface {
 	// PostMaintenance 定期処理を即時投入
 	// (POST /api/maintenance)
 	PostMaintenance(w http.ResponseWriter, r *http.Request, params PostMaintenanceParams)
-	// GetState 利用者が参照できる読み取りモデル
-	// (GET /api/state)
-	GetState(w http.ResponseWriter, r *http.Request, params GetStateParams)
+	// GetOrders 受注一覧と集計
+	// (GET /api/orders)
+	GetOrders(w http.ResponseWriter, r *http.Request, params GetOrdersParams)
+	// GetOrder 受注詳細と配送追跡
+	// (GET /api/orders/{id})
+	GetOrder(w http.ResponseWriter, r *http.Request, id string, params GetOrderParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1528,6 +1402,101 @@ func (siw *ServerInterfaceWrapper) GetBootstrap(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetBootstrap(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCatalog operation middleware
+func (siw *ServerInterfaceWrapper) GetCatalog(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetCatalogParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Actor-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Actor-ID")]; found {
+		var XActorID string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Actor-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Actor-ID", valueList[0], &XActorID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Actor-ID", Err: err})
+			return
+		}
+
+		params.XActorID = &XActorID
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCatalog(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCommands operation middleware
+func (siw *ServerInterfaceWrapper) GetCommands(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetCommandsParams
+
+	// ------------- Optional query parameter "id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "id", r.URL.Query(), &params.Id, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Actor-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Actor-ID")]; found {
+		var XActorID string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Actor-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Actor-ID", valueList[0], &XActorID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Actor-ID", Err: err})
+			return
+		}
+
+		params.XActorID = &XActorID
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCommands(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1795,14 +1764,53 @@ func (siw *ServerInterfaceWrapper) PostMaintenance(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
-// GetState operation middleware
-func (siw *ServerInterfaceWrapper) GetState(w http.ResponseWriter, r *http.Request) {
+// GetOrders operation middleware
+func (siw *ServerInterfaceWrapper) GetOrders(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params GetStateParams
+	var params GetOrdersParams
+
+	// ------------- Optional query parameter "queue" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "queue", r.URL.Query(), &params.Queue, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "queue"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "queue", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
 
 	headers := r.Header
 
@@ -1826,7 +1834,57 @@ func (siw *ServerInterfaceWrapper) GetState(w http.ResponseWriter, r *http.Reque
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetState(w, r, params)
+		siw.Handler.GetOrders(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOrder operation middleware
+func (siw *ServerInterfaceWrapper) GetOrder(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetOrderParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Actor-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Actor-ID")]; found {
+		var XActorID string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Actor-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Actor-ID", valueList[0], &XActorID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Actor-ID", Err: err})
+			return
+		}
+
+		params.XActorID = &XActorID
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrder(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1958,7 +2016,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/health", wrapper.GetHealth)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/bootstrap", wrapper.GetBootstrap)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/state", wrapper.GetState)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/catalog", wrapper.GetCatalog)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/orders", wrapper.GetOrders)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/orders/{id}", wrapper.GetOrder)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/commands", wrapper.GetCommands)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/commands", wrapper.PostCommand)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/commands/{id}/retry", wrapper.RetryCommand)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/maintenance", wrapper.PostMaintenance)
@@ -1992,6 +2053,134 @@ func (response GetBootstrap200JSONResponse) VisitGetBootstrapResponse(w http.Res
 type GetBootstrap500JSONResponse Error
 
 func (response GetBootstrap500JSONResponse) VisitGetBootstrapResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalogRequestObject struct {
+	Params GetCatalogParams
+}
+
+type GetCatalogResponseObject interface {
+	VisitGetCatalogResponse(w http.ResponseWriter) error
+}
+
+type GetCatalog200JSONResponse CatalogState
+
+func (response GetCatalog200JSONResponse) VisitGetCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalog400JSONResponse Error
+
+func (response GetCatalog400JSONResponse) VisitGetCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalog401JSONResponse Error
+
+func (response GetCatalog401JSONResponse) VisitGetCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalog500JSONResponse Error
+
+func (response GetCatalog500JSONResponse) VisitGetCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCommandsRequestObject struct {
+	Params GetCommandsParams
+}
+
+type GetCommandsResponseObject interface {
+	VisitGetCommandsResponse(w http.ResponseWriter) error
+}
+
+type GetCommands200JSONResponse CommandList
+
+func (response GetCommands200JSONResponse) VisitGetCommandsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCommands400JSONResponse Error
+
+func (response GetCommands400JSONResponse) VisitGetCommandsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCommands401JSONResponse Error
+
+func (response GetCommands401JSONResponse) VisitGetCommandsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCommands500JSONResponse Error
+
+func (response GetCommands500JSONResponse) VisitGetCommandsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
@@ -2415,17 +2604,17 @@ func (response PostMaintenance503JSONResponse) VisitPostMaintenanceResponse(w ht
 	return err
 }
 
-type GetStateRequestObject struct {
-	Params GetStateParams
+type GetOrdersRequestObject struct {
+	Params GetOrdersParams
 }
 
-type GetStateResponseObject interface {
-	VisitGetStateResponse(w http.ResponseWriter) error
+type GetOrdersResponseObject interface {
+	VisitGetOrdersResponse(w http.ResponseWriter) error
 }
 
-type GetState200JSONResponse State
+type GetOrders200JSONResponse OrderPage
 
-func (response GetState200JSONResponse) VisitGetStateResponse(w http.ResponseWriter) error {
+func (response GetOrders200JSONResponse) VisitGetOrdersResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
@@ -2437,9 +2626,9 @@ func (response GetState200JSONResponse) VisitGetStateResponse(w http.ResponseWri
 	return err
 }
 
-type GetState400JSONResponse Error
+type GetOrders400JSONResponse Error
 
-func (response GetState400JSONResponse) VisitGetStateResponse(w http.ResponseWriter) error {
+func (response GetOrders400JSONResponse) VisitGetOrdersResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
@@ -2451,9 +2640,9 @@ func (response GetState400JSONResponse) VisitGetStateResponse(w http.ResponseWri
 	return err
 }
 
-type GetState401JSONResponse Error
+type GetOrders401JSONResponse Error
 
-func (response GetState401JSONResponse) VisitGetStateResponse(w http.ResponseWriter) error {
+func (response GetOrders401JSONResponse) VisitGetOrdersResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
@@ -2465,9 +2654,88 @@ func (response GetState401JSONResponse) VisitGetStateResponse(w http.ResponseWri
 	return err
 }
 
-type GetState500JSONResponse Error
+type GetOrders500JSONResponse Error
 
-func (response GetState500JSONResponse) VisitGetStateResponse(w http.ResponseWriter) error {
+func (response GetOrders500JSONResponse) VisitGetOrdersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrderRequestObject struct {
+	Id     string `json:"id"`
+	Params GetOrderParams
+}
+
+type GetOrderResponseObject interface {
+	VisitGetOrderResponse(w http.ResponseWriter) error
+}
+
+type GetOrder200JSONResponse OrderDetail
+
+func (response GetOrder200JSONResponse) VisitGetOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrder400JSONResponse Error
+
+func (response GetOrder400JSONResponse) VisitGetOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrder401JSONResponse Error
+
+func (response GetOrder401JSONResponse) VisitGetOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrder404JSONResponse Error
+
+func (response GetOrder404JSONResponse) VisitGetOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrder500JSONResponse Error
+
+func (response GetOrder500JSONResponse) VisitGetOrderResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := runtime.JSONMarshalWrite(&buf, response); err != nil {
@@ -2484,6 +2752,12 @@ type StrictServerInterface interface {
 	// GetBootstrap 初期マスタ
 	// (GET /api/bootstrap)
 	GetBootstrap(ctx context.Context, request GetBootstrapRequestObject) (GetBootstrapResponseObject, error)
+	// GetCatalog 商品カタログ・カート・在庫管理の現在状態
+	// (GET /api/catalog)
+	GetCatalog(ctx context.Context, request GetCatalogRequestObject) (GetCatalogResponseObject, error)
+	// GetCommands Commandの処理結果
+	// (GET /api/commands)
+	GetCommands(ctx context.Context, request GetCommandsRequestObject) (GetCommandsResponseObject, error)
 	// PostCommand Commandを永続受付
 	// (POST /api/commands)
 	PostCommand(ctx context.Context, request PostCommandRequestObject) (PostCommandResponseObject, error)
@@ -2502,9 +2776,12 @@ type StrictServerInterface interface {
 	// PostMaintenance 定期処理を即時投入
 	// (POST /api/maintenance)
 	PostMaintenance(ctx context.Context, request PostMaintenanceRequestObject) (PostMaintenanceResponseObject, error)
-	// GetState 利用者が参照できる読み取りモデル
-	// (GET /api/state)
-	GetState(ctx context.Context, request GetStateRequestObject) (GetStateResponseObject, error)
+	// GetOrders 受注一覧と集計
+	// (GET /api/orders)
+	GetOrders(ctx context.Context, request GetOrdersRequestObject) (GetOrdersResponseObject, error)
+	// GetOrder 受注詳細と配送追跡
+	// (GET /api/orders/{id})
+	GetOrder(ctx context.Context, request GetOrderRequestObject) (GetOrderResponseObject, error)
 }
 
 // StrictHandlerFunc and StrictMiddlewareFunc are type aliases rather than
@@ -2566,6 +2843,58 @@ func (sh *strictHandler) GetBootstrap(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetBootstrapResponseObject); ok {
 		if err := validResponse.VisitGetBootstrapResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCatalog operation middleware
+func (sh *strictHandler) GetCatalog(w http.ResponseWriter, r *http.Request, params GetCatalogParams) {
+	var request GetCatalogRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+		return sh.ssi.GetCatalog(ctx, request.(GetCatalogRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCatalog")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCatalogResponseObject); ok {
+		if err := validResponse.VisitGetCatalogResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCommands operation middleware
+func (sh *strictHandler) GetCommands(w http.ResponseWriter, r *http.Request, params GetCommandsParams) {
+	var request GetCommandsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+		return sh.ssi.GetCommands(ctx, request.(GetCommandsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCommands")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCommandsResponseObject); ok {
+		if err := validResponse.VisitGetCommandsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -2736,25 +3065,52 @@ func (sh *strictHandler) PostMaintenance(w http.ResponseWriter, r *http.Request,
 	}
 }
 
-// GetState operation middleware
-func (sh *strictHandler) GetState(w http.ResponseWriter, r *http.Request, params GetStateParams) {
-	var request GetStateRequestObject
+// GetOrders operation middleware
+func (sh *strictHandler) GetOrders(w http.ResponseWriter, r *http.Request, params GetOrdersParams) {
+	var request GetOrdersRequestObject
 
 	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
-		return sh.ssi.GetState(ctx, request.(GetStateRequestObject))
+		return sh.ssi.GetOrders(ctx, request.(GetOrdersRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetState")
+		handler = middleware(handler, "GetOrders")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetStateResponseObject); ok {
-		if err := validResponse.VisitGetStateResponse(w); err != nil {
+	} else if validResponse, ok := response.(GetOrdersResponseObject); ok {
+		if err := validResponse.VisitGetOrdersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetOrder operation middleware
+func (sh *strictHandler) GetOrder(w http.ResponseWriter, r *http.Request, id string, params GetOrderParams) {
+	var request GetOrderRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+		return sh.ssi.GetOrder(ctx, request.(GetOrderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetOrder")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetOrderResponseObject); ok {
+		if err := validResponse.VisitGetOrderResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

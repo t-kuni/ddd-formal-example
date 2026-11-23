@@ -33,7 +33,6 @@ type Payload struct {
 	CarrierID       string         `json:"carrierId,omitempty"`
 }
 type Command struct {
-	Projected bool            `json:"projected"`
 	ID        string          `json:"id"`
 	ActorID   string          `json:"actorId"`
 	Type      string          `json:"type"`
@@ -120,7 +119,7 @@ func (s *Service) processOnce(ctx context.Context, id string) error {
 	if c.ActorID == store.ID("system") {
 		actor = domain.Actor{ID: c.ActorID, Role: "system", Name: "system"}
 	} else {
-		if e = tx.QueryRow(ctx, "SELECT body FROM actors WHERE id=$1", c.ActorID).Scan(&ab); e != nil {
+		if e = tx.QueryRow(ctx, store.ActorQuery+" WHERE a.id=$1", c.ActorID).Scan(&ab); e != nil {
 			return e
 		}
 		if e = json.Unmarshal(ab, &actor); e != nil {
@@ -143,9 +142,6 @@ func (s *Service) processOnce(ctx context.Context, id string) error {
 		}
 		_, e = s.DB.Pool.Exec(ctx, "UPDATE commands SET status='rejected',error=$2,finished_at=now() WHERE id=$1 AND status='queued'", id, r.Message)
 		return e
-	}
-	if fields, ok := result.(map[string]any); ok {
-		fields["versions"] = u.Versions
 	}
 	rb, _ := json.Marshal(result)
 	tag, e := tx.Exec(ctx, "UPDATE commands SET status='succeeded',result=$2,error='',finished_at=now() WHERE id=$1 AND status='queued'", id, rb)
@@ -301,7 +297,7 @@ func (s *Service) apply(u *store.Unit, c Command, a domain.Actor, now time.Time)
 		for _, id := range sortedKeys(items) {
 			var pb []byte
 			var pr domain.Product
-			if e := u.Tx.QueryRow(u.Ctx, "SELECT body FROM products WHERE id=$1", id).Scan(&pb); e != nil {
+			if e := u.Tx.QueryRow(u.Ctx, store.ProductQuery+" WHERE id=$1", id).Scan(&pb); e != nil {
 				return nil, e
 			}
 			if e := json.Unmarshal(pb, &pr); e != nil {
@@ -515,7 +511,13 @@ func (s *Service) apply(u *store.Unit, c Command, a domain.Actor, now time.Time)
 			return nil, e
 		}
 	}
+	if e := u.Save("order", x.ID, o); e != nil {
+		return nil, e
+	}
 	if target == domain.Delivered {
+		if _, e := u.Tx.Exec(u.Ctx, "INSERT INTO order_point_awards(order_id) VALUES($1)", x.ID); e != nil {
+			return nil, e
+		}
 		var l domain.Loyalty
 		if e := u.Load("loyalty", x.CustomerID, &l); e != nil {
 			return nil, e
@@ -530,9 +532,9 @@ func (s *Service) apply(u *store.Unit, c Command, a domain.Actor, now time.Time)
 		if e != nil {
 			return nil, e
 		}
-		if _, e = u.Tx.Exec(u.Ctx, "INSERT INTO invoices(id,order_id,customer_id,pdf) VALUES($1,$2,$3,$4) ON CONFLICT(order_id) DO NOTHING", store.ID("invoice/"+x.ID), x.ID, x.CustomerID, pdf); e != nil {
+		if _, e = u.Tx.Exec(u.Ctx, "INSERT INTO invoices(id,order_id,pdf) VALUES($1,$2,$3) ON CONFLICT(order_id) DO NOTHING", store.ID("invoice/"+x.ID), x.ID, pdf); e != nil {
 			return nil, e
 		}
 	}
-	return map[string]any{"orderId": x.ID, "status": target.Code()}, u.Save("order", x.ID, o)
+	return map[string]any{"orderId": x.ID, "status": target.Code()}, nil
 }

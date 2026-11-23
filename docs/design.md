@@ -1,14 +1,14 @@
 # 設計・技術選定
 
-作成日: 2026-11-23。ローカル専用の卸受注・配送検証アプリ「ORBIT Wholesale」。
+ローカル専用の卸受注・配送検証アプリ「ORBIT Wholesale」。
 
 ## 決定
 
 | 領域 | 採用 | 理由 |
 |---|---|---|
 | 形式検証 | Dafny 4.11.0 + 同梱Z3 | 契約と実行ロジックを同じソースに置き、検証した処理をGoに生成する |
-| バックエンド | Go、標準net/http、pgx v5、AWS SDK v2 | 永続化と外部サービスのアダプターを明確に分離 |
-| DB | PostgreSQL 18 | JSONBによる集約スナップショット、トランザクション、一意制約、楽観ロック |
+| バックエンド | Go、標準net/http、pgx v5、GORM、AWS SDK v2 | 永続化と外部サービスのアダプターを明確に分離 |
+| DB | PostgreSQL 18 | 正規化した業務テーブル、トランザクション、一意制約、楽観ロック |
 | DB閲覧 | Adminer | ブラウザでテーブル定義と保存データを確認。ホスト側の公開先は127.0.0.1 |
 | 非同期 | AWS EmulatorのSQS Standard、Go Lambda、EventBridge Scheduler | 少なくとも1回の配信を前提に、DBで冪等性を保証する |
 | 画像 | AWS EmulatorのS3 | 公式エミュレーターを実際のSDKで使用。LocalStackは使わない |
@@ -45,15 +45,33 @@ JPY整数、価格は税抜。商品合計にクーポン割引率を適用し�
 
 ## HTTP契約
 
-`api/openapi.yaml` をHTTP契約の原本とする。固定版の `oapi-codegen` が `net/http` のルート、型付きハンドラー、入出力型を生成する。入力はミドルウェアで検証し、Commandは `type` ごとに必要な `payload` を `oneOf` で指定する。Queryの投影も `kind` ごとにスキーマを定義する。HTTPのDTOは `internal/web` で既存のアプリケーション入力へ変換し、業務ルールはドメイン層で評価する。
+`api/openapi.yaml` をHTTP契約の原本とする。固定版の `oapi-codegen` が `net/http` のルート、型付きハンドラー、入出力型を生成する。入力はミドルウェアで検証し、Commandは `type` ごとに必要な `payload` を `oneOf` で指定する。Queryのレスポンスは各画面の用途に合わせて定義する。HTTPのDTOは `internal/web` で既存のアプリケーション入力へ変換し、業務ルールはドメイン層で評価する。
 
 ## CommandとQuery
 
-POST /api/commands はUUIDのIdempotency-Key、actor、type、payloadをDBに永続化して202を返す。同一キー・同一内容は同じ結果を返し、内容違いは409。Commandの受付時点では業務操作は未確定。画面はCommand完了と読み取りモデルへの反映を待つ。
+POST /api/commands はUUIDのIdempotency-Key、actor、type、payloadをDBに永続化して202を返す。同一キー・同一内容は同じ結果を返し、内容違いは409。Commandの受付時点では業務操作は未確定。画面はCommand完了を確認して、表示中のQueryを再取得する。
 
-dispatcherは未完了CommandのIDをSQSに周期的に送信。DBが正本なので、送信とDB記録間のクラッシュは再送で回復できる。workerは集約を取得、ドメイン処理、検査、version一致のUPDATE、Command完了、読み取り反映イベントを同一トランザクションで保存する。業務違反はrejected、インフラ障害は再試行、上限超過はdead。deadはオペレーターが再投入できる。DBコミット後にSQSを削除。重複受信は完了済みCommandを確認して無処理。
+dispatcherは未完了CommandのIDをSQSに周期的に送信。DBが正本なので、送信とDB記録間のクラッシュは再送で回復できる。workerは同一トランザクションで集約取得、ドメイン操作・検査、version一致のUPDATE、明細等の更新、Command完了を行う。業務違反はrejected、インフラ障害は再試行、上限超過はdead。deadはオペレーターが再投入できる。DBコミット後にSQSを削除。重複受信は完了済みCommandを確認して無処理。
 
-Queryは別テーブルの読み取りモデル。projectorが集約の変更イベントを適用する。versionが古いイベントで新しい表示を上書きしない。これはCQRSでありEvent Sourcingではない。集約スナップショットが正本。
+### PostgreSQLの正本
+
+| 最新の事実 | テーブル |
+|---|---|
+| 利用者、顧客住所、商品 | `actors`、`customer_addresses`、`products` |
+| 手持ち・引当、カートと明細 | `inventory`、`carts`、`cart_items` |
+| 受注の現在状態、確定した配送先と明細 | `orders`、`order_addresses`、`order_items` |
+| 配送と箱 | `shipments`、`shipment_boxes` |
+| 受注の状態遷移を追跡する履歴 | `order_status_history` |
+| 現在のポイント残高と受注別の付与実績 | `loyalty_accounts`、`order_point_awards` |
+| 受付結果と請求書・メール送信状態 | `commands`、`invoices` |
+
+受注の状態変更と追跡履歴の追記をまとめてコミットする。確定明細の価格・商品表示情報・配送先は発注時の値を保持する。受注とポイント付与実績、請求書は一意制約で結び付ける。
+
+### Query
+
+用途別のAPIが正規化テーブルを直接参照する。受注一覧は顧客・キュー・ステータスをSQLで絞り、発注日時とUUIDをカーソルキーとして25件ずつ取得する。件数と保有ポイントは同じDBスナップショットで集計する。受注詳細だけが明細・箱・状態履歴を読む。
+
+pgxでCommandの楽観ロック・トランザクションと一覧の集計SQLを扱う。受注詳細ではGORMの `Preload` で配送先、明細、配送と箱、状態履歴を読み、明細と履歴の順序を指定する。関連取得は読み取り専用の `REPEATABLE READ` で行う。GORMはpgxと接続プールを共有し、テーブル定義は `schema.sql` を原本とする。ライブラリの依存は永続化アダプターに置き、業務ロジックとHTTP契約を独立させる。GORMの本体とPostgreSQLドライバーは同じ公開組織で保守され、版は `go.mod` に固定する。 [GORMのリリース](https://github.com/go-gorm/gorm/releases) [PostgreSQLドライバー](https://github.com/go-gorm/postgres)
 
 楽観ロック競合は最新状態からトランザクション全体をやり直す。利用者が期待versionを指定した操作は、変化していれば業務上の競合として拒否する。行ロックを明示して順番待ちする設計にしないが、UPDATEや一意制約によるPostgreSQL内部のロックは存在する。
 
@@ -61,7 +79,7 @@ SMTP送信とDBコミットは原子的にできない。請求書の作成・�
 
 ## 外部プロセス
 
-Go LambdaにHTTPリクエスト、Command用SQSイベント、maintenance用SQSイベントの入口を用意する。EventBridge Schedulerが1分ごとにmaintenanceキューへ送信。maintenanceで期限切れCommand作成、未配信Commandの再送、Query反映、請求メール送信を行う。Command完了後もmaintenanceイベントを送って画面反映を早める。
+Go LambdaにHTTPリクエスト、Command用SQSイベント、maintenance用SQSイベントの入口を用意する。EventBridge Schedulerが1分ごとにmaintenanceキューへ送信。maintenanceで期限切れCommand作成、未配信Commandの再送、請求メール送信を行う。
 
 ローカルのAWS Emulator 1.0.580では、Goのprovided.al2023をInvokeするとInvalidRuntimeExceptionになることを確認した。この部分はAWS公式Lambda Runtime Interface Emulator (RIE)でGo Lambdaを実行する。API Gateway相当のHTTPイベント変換と、SQS Event Source Mapping相当の受信・Lambda呼出し・成功時削除のみを薄いローカルアダプターで補う。アダプターに業務処理は置かない。RIEはLambdaサービス全体を再現するものではない。
 
@@ -81,7 +99,7 @@ AWS Emulatorは再起動でS3/SQSを失う。商品画像の元データはPostg
 
 ## 型による保護
 
-`internal/domain/values.go`に値オブジェクトを定義する。HTTP payload、DBのJSON、読み取りモデルは境界のDTOとしてプリミティブ値を用い、業務処理へ入る際に検証して専用型へ変換する。
+`internal/domain/values.go`に値オブジェクトを定義する。HTTP payload、DB復元用の値、Queryのレスポンスは境界のDTOとしてプリミティブ値を用い、業務処理へ入る際に検証して専用型へ変換する。
 
 | 専用型・構造 | 防ぐ誤り |
 |---|---|
