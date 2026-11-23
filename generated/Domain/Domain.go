@@ -42,7 +42,7 @@ func (_this *Default__) EqualsGeneric(x interface{}) bool {
 }
 
 func (*Default__) String() string {
-	return "_module.Default__"
+	return "Domain.Default__"
 }
 func (_this *Default__) ParentTraits_() []*_dafny.TraitID {
 	return [](*_dafny.TraitID){}

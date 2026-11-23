@@ -345,3 +345,34 @@ func reservation(v int64) domain.ReservationDelta {
 	}
 	return x
 }
+
+func TestCommandFailuresReachDeadAndStopExecuting(t *testing.T) {
+	s := testService(t)
+	ctx := context.Background()
+	// A valid UUID without an actor row causes a read error inside the transaction.
+	c := Command{ID: uuid.NewString(), ActorID: uuid.NewString(), Type: "cart.set"}
+	if _, err := s.Submit(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 1; i <= 9; i++ {
+		err := s.Process(ctx, c.ID)
+		if (err != nil) != (i <= 8) {
+			t.Fatalf("invocation %d: got %v", i, err)
+		}
+		wantAttempts, wantStatus := i, "queued"
+		if i >= 8 {
+			wantAttempts, wantStatus = 8, "dead"
+		}
+		var status, message string
+		var attempts int
+		err = s.DB.Pool.QueryRow(ctx, "SELECT status,attempts,error FROM commands WHERE id=$1", c.ID).
+			Scan(&status, &attempts, &message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status != wantStatus || attempts != wantAttempts || message == "" {
+			t.Fatalf("invocation %d: got status=%q attempts=%d error=%q", i, status, attempts, message)
+		}
+	}
+}

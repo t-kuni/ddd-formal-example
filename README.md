@@ -138,7 +138,7 @@ docker compose up --build -d
 
 ## 形式検証・テスト
 
-Dafnyの原本は [formal/Domain.dfy](formal/Domain.dfy)。在庫、カートの引当差分と期限、受注履歴、金額とポイントの計算を形式検証し、入力範囲や配送条件の判定も同じ原本からGoへ生成しています。生成された処理を実際の集約が呼びます。仕様だけを検証して別の手書き実装を使う構成ではありません。
+[formal/Domain.dfy](formal/Domain.dfy) は、在庫・カート、受注履歴、金額・ポイント、配送条件の業務ルールを定義します。[formal/CommandFlow.dfy](formal/CommandFlow.dfy) は、ワーカーが呼ぶ `ExecuteCommand` と、権限、明細処理、保存順、ロールバック、競合時の再試行を定義します。明細は商品IDと数量のDafnyシーケンスとして渡します。Goで実装するSQL・トランザクション・PDF生成は、Dafny側の操作契約と結合テストでつなぎます。
 
 ```bash
 # Dafny検証、生成コードとの一致、故意のバグ検出、型誤用のコンパイル拒否、Goテスト、静的検査

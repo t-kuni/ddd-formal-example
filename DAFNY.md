@@ -93,3 +93,10 @@ predicate HistoryStepsValid(edges: seq<HistoryEdge>) {
 ## 検証の範囲
 
 Dafny は事前条件を満たす入力について、処理が契約を満たすことや、添字アクセスなどが安全であることを静的に検証します。実行用の述語・関数・メソッドは Go に生成され、`requires`・`ensures`・`assert` は静的検証に使われます。Go 側の入力検査、DB の保存、トランザクション、外部サービスとの連携は、別途テストで確認する範囲です。[設計](docs/design.md) · [検証結果](docs/verification.md) · [検証の実行方法](README.md#形式検証テスト)
+
+
+## Commandの実行手順
+
+Goのワーカーは `ExecuteCommand` を1回呼びます。DafnyがCommandを読み、権限に応じて処理を分岐させ、必要な読み書きを `Effects` に指示します。GoはSQL、集約との型変換、PDF生成などの操作を提供します。発注や在庫の引当・解放・出荷では、商品ID順に並べた `seq<StockLine>` をDafnyが走査します。
+
+`Effects` のゴーストフィールドは、トランザクションの開始、業務処理の成功、完了記録の準備、確認済みのコミットを表します。Dafnyはこの契約を前提に、業務処理の成功後に完了を記録し、コミット成功時だけ正常完了を返すことを検証します。Go側の同一トランザクションへの書き込みや競合時のDB状態は、実PostgreSQLの結合テストで確認します。 [Commandフロー](formal/CommandFlow.dfy) · [Goの操作実装](internal/app/command_effects.go)
