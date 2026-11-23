@@ -165,28 +165,16 @@ func (_static *CompanionStruct_Default___) Transition(s _dafny.Int, t _dafny.Int
 	return ok, next
 }
 func (_static *CompanionStruct_Default___) Touch(now _dafny.Int) _dafny.Int {
-	var expires _dafny.Int = _dafny.Zero
-	_ = expires
-	expires = (now).Plus(_dafny.IntOfInt64(3600))
-	return expires
+	return (now).Plus(_dafny.IntOfInt64(3600))
 }
 func (_static *CompanionStruct_Default___) Expired(now _dafny.Int, expires _dafny.Int) bool {
-	var expired bool = false
-	_ = expired
-	expired = (now).Cmp(expires) >= 0
-	return expired
+	return (now).Cmp(expires) >= 0
 }
 func (_static *CompanionStruct_Default___) MayExpire(now _dafny.Int, current _dafny.Int, requested _dafny.Int, hasItems bool) bool {
-	var expire bool = false
-	_ = expire
-	expire = (((now).Cmp(current) >= 0) && ((current).Cmp(requested) == 0)) && (hasItems)
-	return expire
+	return ((Companion_Default___.Expired(now, current)) && ((current).Cmp(requested) == 0)) && (hasItems)
 }
 func (_static *CompanionStruct_Default___) MayCheckout(now _dafny.Int, expires _dafny.Int, hasItems bool) bool {
-	var allowed bool = false
-	_ = allowed
-	allowed = ((now).Cmp(expires) < 0) && (hasItems)
-	return allowed
+	return (!(Companion_Default___.Expired(now, expires))) && (hasItems)
 }
 func (_static *CompanionStruct_Default___) Price(subtotal _dafny.Int, percent _dafny.Int) (_dafny.Int, _dafny.Int, _dafny.Int, _dafny.Int, _dafny.Int) {
 	var discount _dafny.Int = _dafny.Zero
@@ -212,28 +200,16 @@ func (_static *CompanionStruct_Default___) TimestampValid(seconds _dafny.Int) bo
 func (_static *CompanionStruct_Default___) CartShapeValid(count _dafny.Int, expires _dafny.Int) bool {
 	return (((count).Sign() != -1) && ((count).Cmp(Companion_Default___.LineCountLimit()) <= 0)) && (Companion_Default___.TimestampValid(expires))
 }
-func (_static *CompanionStruct_Default___) ReleasedReservation(quantity _dafny.Int) _dafny.Int {
-	return (_dafny.Zero).Minus(quantity)
-}
 func (_static *CompanionStruct_Default___) PlanCartChange(count _dafny.Int, previousQuantity _dafny.Int, requested _dafny.Int, now _dafny.Int, expires _dafny.Int) CartChange {
-	var plan CartChange = Companion_CartChange_.Default()
-	_ = plan
 	if ((((count).Cmp(Companion_Default___.LineCountLimit()) == 0) && ((previousQuantity).Sign() == 0)) && ((requested).Sign() == 1)) && ((now).Cmp(expires) < 0) {
-		plan = Companion_CartChange_.Create_CartFull_()
+		return Companion_CartChange_.Create_CartFull_()
 	} else if (((count).Sign() == 0) && ((requested).Sign() == 0)) || (((previousQuantity).Cmp(requested) == 0) && ((now).Cmp(expires) < 0)) {
-		plan = Companion_CartChange_.Create_CartUnchanged_()
+		return Companion_CartChange_.Create_CartUnchanged_()
 	} else if (now).Cmp((_dafny.IntOfInt64(9223372036854775807)).Minus(_dafny.IntOfInt64(3600))) > 0 {
-		plan = Companion_CartChange_.Create_CartTimeOutOfRange_()
+		return Companion_CartChange_.Create_CartTimeOutOfRange_()
 	} else {
-		var _0_expiry _dafny.Int
-		_ = _0_expiry
-		var _out0 _dafny.Int
-		_ = _out0
-		_out0 = Companion_Default___.Touch(now)
-		_0_expiry = _out0
-		plan = Companion_CartChange_.Create_CartChanged_((now).Cmp(expires) >= 0, (requested).Minus(previousQuantity), _0_expiry)
+		return Companion_CartChange_.Create_CartChanged_(Companion_Default___.Expired(now, expires), (requested).Minus(previousQuantity), Companion_Default___.Touch(now))
 	}
-	return plan
 }
 func (_static *CompanionStruct_Default___) OrderLineCountValid(count _dafny.Int) bool {
 	return ((_dafny.One).Cmp(count) <= 0) && ((count).Cmp(Companion_Default___.LineCountLimit()) <= 0)

@@ -79,7 +79,6 @@ func (s *Service) Submit(ctx context.Context, c Command) (string, error) {
 	}
 	return status, nil
 }
-func validID(s string) bool { _, e := uuid.Parse(s); return e == nil }
 func loadStock(u *store.Unit, id string) (*domain.Stock, error) {
 	var st domain.Stock
 	e := u.Load("stock", id, &st)

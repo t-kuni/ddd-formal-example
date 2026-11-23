@@ -121,89 +121,37 @@ func (c *Cart) UnmarshalJSON(b []byte) error {
 	if e := json.Unmarshal(b, &x); e != nil {
 		return e
 	}
+	value, err := RestoreCart(x)
+	if err != nil {
+		return err
+	}
+	*c = value
+	return nil
+}
+
+// RestoreCart validates a complete cart value obtained from storage or a command plan.
+func RestoreCart(x CartSnapshot) (Cart, error) {
 	id, e := ParseID[ActorTag](x.CustomerID)
 	if e != nil {
-		return e
+		return Cart{}, e
 	}
 	v := NewCart(id)
 	if !core.Companion_Default___.CartShapeValid(d.IntOf(len(x.Items)), d.IntOfInt64(x.Expires)) {
-		return Invalid("カート不変条件違反")
+		return Cart{}, Invalid("カート不変条件違反")
 	}
 	v.expires = x.Expires
 	for key, q := range x.Items {
 		pid, e := ParseID[ProductTag](key)
 		if e != nil {
-			return e
+			return Cart{}, e
 		}
 		qty, e := NewOrderQuantity(q)
 		if e != nil {
-			return e
+			return Cart{}, e
 		}
 		v.items[pid] = qty
 	}
-	*c = v
-	return nil
-}
-func (c Cart) Expired(now int64) bool {
-	return core.Companion_Default___.Expired(d.IntOfInt64(now), d.IntOfInt64(c.expires))
-}
-func (c *Cart) Change(id ProductID, requested CartQuantity, now int64) (map[string]int64, bool, error) {
-	quantity := requested.Units()
-	if !c.customer.Valid() || !id.Valid() || !core.Companion_Default___.TimestampValid(d.IntOfInt64(now)) {
-		return nil, false, Invalid("未初期化のカート・ID・時刻")
-	}
-	var qty OrderQuantity
-	var e error
-	if quantity != 0 {
-		qty, e = NewOrderQuantity(quantity)
-		if e != nil {
-			return nil, false, e
-		}
-	}
-	plan := core.Companion_Default___.PlanCartChange(d.IntOf(len(c.items)),
-		d.IntOfInt64(c.items[id].Units()), d.IntOfInt64(quantity), d.IntOfInt64(now), d.IntOfInt64(c.expires))
-	switch {
-	case plan.Is_CartFull():
-		return nil, false, Invalid("カートは100商品までです")
-	case plan.Is_CartUnchanged():
-		return nil, false, nil
-	case plan.Is_CartTimeOutOfRange():
-		return nil, false, Invalid("カートの有効期限が範囲外です")
-	}
-	delta := map[string]int64{}
-	if plan.Dtor_reset() {
-		for pid, q := range c.items {
-			delta[pid.String()] = core.Companion_Default___.ReleasedReservation(d.IntOfInt64(q.Units())).Int64()
-		}
-		c.items = map[ProductID]OrderQuantity{}
-	}
-	delta[id.String()] = plan.Dtor_delta().Int64()
-	if quantity == 0 {
-		delete(c.items, id)
-	} else {
-		c.items[id] = qty
-	}
-	c.expires = plan.Dtor_expiry().Int64()
-	return delta, true, nil
-}
-func (c *Cart) Expire(requested, now int64) (map[string]int64, bool) {
-	if !core.Companion_Default___.MayExpire(d.IntOfInt64(now), d.IntOfInt64(c.expires), d.IntOfInt64(requested), len(c.items) > 0) {
-		return nil, false
-	}
-	delta := map[string]int64{}
-	for id, q := range c.items {
-		delta[id.String()] = core.Companion_Default___.ReleasedReservation(d.IntOfInt64(q.Units())).Int64()
-	}
-	c.items = map[ProductID]OrderQuantity{}
-	return delta, true
-}
-func (c *Cart) Checkout(now int64) (map[string]int64, error) {
-	if !core.Companion_Default___.MayCheckout(d.IntOfInt64(now), d.IntOfInt64(c.expires), len(c.items) > 0) {
-		return nil, Invalid("カートが空、または有効期限切れです")
-	}
-	items := c.Snapshot().Items
-	c.items = map[ProductID]OrderQuantity{}
-	return items, nil
+	return v, nil
 }
 
 var StatusNames = []string{"決済待ち", "受注確定", "集品中", "作業保留", "梱包済み", "配送中", "配送失敗", "配送完了", "キャンセル", "決済失敗", "倉庫返送"}

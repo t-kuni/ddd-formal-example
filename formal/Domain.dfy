@@ -80,25 +80,23 @@ module Domain {
     ensures s in {7,8,9,10} ==> !ok && next == s
   { ok := Allowed(s,t); next := if ok then t else s; }
 
-  method Touch(now: int) returns (expires: int)
+  function Touch(now: int): (expires: int)
     requires TimestampValid(now)
     ensures expires == now + 3600
     ensures expires > now
-  { expires := now + 3600; }
+  { now + 3600 }
 
-  method Expired(now: int, expires: int) returns (expired: bool)
-    ensures expired <==> now >= expires
-  { expired := now >= expires; }
+  predicate Expired(now: int, expires: int) { now >= expires }
 
-  method MayExpire(now: int, current: int, requested: int, hasItems: bool) returns (expire: bool)
+  function MayExpire(now: int, current: int, requested: int, hasItems: bool): (expire: bool)
     ensures expire <==> now >= current && current == requested && hasItems
     ensures current != requested ==> !expire
-  { expire := now >= current && current == requested && hasItems; }
+  { Expired(now, current) && current == requested && hasItems }
 
-  method MayCheckout(now: int, expires: int, hasItems: bool) returns (allowed: bool)
+  function MayCheckout(now: int, expires: int, hasItems: bool): (allowed: bool)
     ensures allowed <==> now < expires && hasItems
     ensures now >= expires ==> !allowed
-  { allowed := now < expires && hasItems; }
+  { !Expired(now, expires) && hasItems }
 
   method Price(subtotal: int, percent: int) returns (discount: int, net: int, tax: int, total: int, points: int)
     requires 0 <= subtotal <= SubtotalLimit
@@ -123,15 +121,10 @@ module Domain {
     0 <= count <= LineCountLimit && TimestampValid(expires)
   }
 
-  function ReleasedReservation(quantity: int): int
-    requires OrderQuantityValid(quantity)
-    ensures StockDeltaValid(ReleasedReservation(quantity))
-  { -quantity }
-
   datatype CartChange = CartFull | CartUnchanged | CartTimeOutOfRange |
     CartChanged(reset: bool, delta: int, expiry: int)
 
-  method PlanCartChange(count: int, previousQuantity: int, requested: int, now: int, expires: int) returns (plan: CartChange)
+  function PlanCartChange(count: int, previousQuantity: int, requested: int, now: int, expires: int): (plan: CartChange)
     requires CartShapeValid(count, expires) && TimestampValid(now)
     requires CartQuantityValid(previousQuantity) && CartQuantityValid(requested)
     requires count == 0 ==> previousQuantity == 0
@@ -142,16 +135,10 @@ module Domain {
       plan.expiry == now + 3600 && now < plan.expiry <= 9223372036854775807)
     ensures plan.CartChanged? && !plan.reset && previousQuantity == 0 && requested > 0 ==> count < LineCountLimit
   {
-    if count == LineCountLimit && previousQuantity == 0 && requested > 0 && now < expires {
-      plan := CartFull;
-    } else if (count == 0 && requested == 0) || (previousQuantity == requested && now < expires) {
-      plan := CartUnchanged;
-    } else if now > 9223372036854775807 - 3600 {
-      plan := CartTimeOutOfRange;
-    } else {
-      var expiry := Touch(now);
-      plan := CartChanged(now >= expires, requested - previousQuantity, expiry);
-    }
+    if count == LineCountLimit && previousQuantity == 0 && requested > 0 && now < expires then CartFull
+    else if (count == 0 && requested == 0) || (previousQuantity == requested && now < expires) then CartUnchanged
+    else if now > 9223372036854775807 - 3600 then CartTimeOutOfRange
+    else CartChanged(Expired(now, expires), requested - previousQuantity, Touch(now))
   }
 
   predicate OrderLineCountValid(count: int) { 1 <= count <= LineCountLimit }

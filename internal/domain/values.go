@@ -155,16 +155,6 @@ func NewPoints(v int64) (Points, error) {
 }
 func (p Points) Value() int64 { return p.value }
 
-type CartQuantity struct{ value int64 }
-
-func NewCartQuantity(v int64) (CartQuantity, error) {
-	if !core.Companion_Default___.CartQuantityValid(d.IntOfInt64(v)) {
-		return CartQuantity{}, Invalid("カート数量は0〜10000です")
-	}
-	return CartQuantity{v}, nil
-}
-func (q CartQuantity) Units() int64 { return q.value }
-
 type BoxCount struct{ value int }
 
 func NewBoxCount(v int) (BoxCount, error) {

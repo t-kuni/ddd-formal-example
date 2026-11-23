@@ -14,12 +14,12 @@ if "$DAFNY" verify .build/Mutant.dfy > .build/mutation-result.txt 2>&1; then
  echo 'ERROR: verifier accepted the broken reservation' >&2; exit 1
 fi
 grep -q 'could not be proved' .build/mutation-result.txt
-# Saving completion before successful work must violate the flow contract.
-sed 's/e.workReady := r.Ok?;/e.workReady := false;/' formal/CommandFlow.dfy > .build/CommandFlowMutant.dfy
+# A delivery plan without its invoice must violate the postcondition.
+sed '/var obligations :=/s/, CreateInvoice//' formal/CommandFlow.dfy > .build/CommandFlowMutant.dfy
 if "$DAFNY" verify formal/Domain.dfy .build/CommandFlowMutant.dfy > .build/command-mutation-result.txt 2>&1; then
- echo 'ERROR: verifier accepted completion without successful work' >&2; exit 1
+ echo 'ERROR: verifier accepted delivery without an invoice' >&2; exit 1
 fi
-grep -q 'a precondition for this call could not be proved' .build/command-mutation-result.txt
+grep -q 'postcondition could not be proved' .build/command-mutation-result.txt
 printf 'Formal verification, generated-code consistency, mutation check: PASS\n'
 (
  cd api

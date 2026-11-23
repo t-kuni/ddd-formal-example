@@ -35,8 +35,8 @@ method Reserve(h: int, r: int, delta: int) returns (ok: bool, next: int)
 | `const StockLimit: int := 1000000000` | 型付き定数。 |
 | `int`、`bool`、`string` | 任意精度の整数、真偽値、文字列。時刻を Go の符号付き64ビット整数に収める上限は、`PlanCartChange` に明示されています。 |
 | `predicate StockValid(...)` | 真偽値を返す関数。契約でも実行処理でも使えます。 |
-| `function LineAmount(...): int { ... }` | 副作用のない関数。末尾の型が結果型で、本体の式が結果です。`ReleasedReservation` の `ensures` にある `ReleasedReservation(quantity)` は関数の結果を指します。 |
-| `method ... returns (...)` | 代入や分岐などの文で処理を記述します。`var expiry := Touch(now);` はメソッドを呼び、結果を型推論つきのローカル変数で受け取ります。 |
+| `function LineAmount(...): int { ... }` | 副作用のない関数。末尾の型が結果型で、本体の式が結果です。名前付きの結果を使うと、たとえば `Touch` の `ensures` にある `expires` が関数の結果を指します。 |
+| `method ... returns (...)` | 代入や分岐などの文で処理を記述します。`var ok, next := Reserve(h, r, delta);` のように、結果を型推論つきのローカル変数で受け取れます。 |
 | `if 条件 { ... } else if 条件 { ... } else { ... }` | 文の分岐。先に成立した分岐を実行します。`return 値;` で出力に値を渡して途中で終了する書き方もあります。 |
 | `==`、`!=`、`0 <= r <= h` | 等しい、異なる、範囲の連鎖比較。`0 <= r <= h` は `0 <= r && r <= h` と同じ条件です。 |
 | `!`、`&&`、`\|\|` | 否定、かつ、または。`&&` と `\|\|` は左側だけで結果が決まれば右側を評価しません。 |
@@ -47,7 +47,7 @@ method Reserve(h: int, r: int, delta: int) returns (ok: bool, next: int)
 
 [公式 Dafny リファレンス](https://dafny.org/v4.11.0/DafnyRef/DafnyRef) · [公式クイックリファレンス](https://dafny.org/latest/QuickReference)
 
-`Price` の `assert 0 <= subtotal * percent <= subtotal * 100;` は、割引計算に使う積の範囲を示す証明の途中経過です。非負の整数を正の整数で割ると小数部分が切り捨てられます。税抜小計が 1,235 円で割引率が 10% なら、割引 123 円、割引後税抜 1,112 円、税 111 円、合計 1,223 円、11 ポイントです。[`Price` の契約と計算](formal/Domain.dfy#L103-L118)
+`Price` の `assert 0 <= subtotal * percent <= subtotal * 100;` は、割引計算に使う積の範囲を示す証明の途中経過です。非負の整数を正の整数で割ると小数部分が切り捨てられます。税抜小計が 1,235 円で割引率が 10% なら、割引 123 円、割引後税抜 1,112 円、税 111 円、合計 1,223 円、11 ポイントです。[`Price` の契約と計算](formal/Domain.dfy#L101-L116)
 
 ## 3. `PlanCartChange` で結果の種類を読む
 
@@ -60,9 +60,9 @@ datatype CartChange = CartFull | CartUnchanged | CartTimeOutOfRange |
 
 - `plan.CartChanged?` は「結果が `CartChanged` か」を調べます。`plan.reset` などのフィールドは、それを持つコンストラクターに対して読みます。`plan.CartChanged? ==> ...` は、保証とフィールド参照の両方を該当する結果に絞ります。
 - 本体の分岐順は「有効期限内の満杯カートへの新規追加」「変更なし」「期限を表せる時刻範囲の超過」「変更成立」です。たとえば、有効期限内で数量を 2 から 5 に変え、時刻上限にも達していなければ、`reset` は偽、`delta` は 3、`expiry` は `now + 3600` です。
-- `now >= expires` の場合、変更が成立すると `reset` は真です。`delta` の定義は常に `requested - previousQuantity` です。期限切れ時の既存引当の解放は Go 側の処理と合わせて読みます。
+- `now >= expires` の場合、変更が成立すると `reset` は真です。`delta` の定義は常に `requested - previousQuantity` です。`PlanCart` は、対象商品の差分に加え、期限切れ時に除去する他商品の解放量も求めます。
 
-[カート変更の定義と契約](formal/Domain.dfy#L131-L155) · [Go 側の呼び出し](internal/domain/types.go#L163)
+[カート変更の定義と契約](formal/Domain.dfy#L124-L142) · [カートの更新内容](formal/CommandFlow.dfy)
 
 ## 4. `CheckHistory` で列と全称量化を読む
 
@@ -77,7 +77,7 @@ predicate HistoryStepsValid(edges: seq<HistoryEdge>) {
 - `forall i | 範囲 :: 条件` は「範囲内のすべての `i` で条件が成立する」です。ここでは 2 件目から末尾まで、直前の終了状態と現在の開始状態が一致し、現在の遷移が `Allowed` に含まれることを求めます。要素が 0 件または 1 件なら対象の添字がないため、この述語は真です。
 - `CheckHistory` はさらに、列が空でなく、先頭が `-1 → 0` で、末尾の終了状態が現在の受注状態に一致することを求めます。`ensures` の `|edges| > 0 && ...` は、空の列に添字でアクセスしないためのガードにもなります。
 
-たとえば `[-1 → 0, 0 → 1, 1 → 2]` と現在状態 `2` の組み合わせは `ValidHistory` です。同じ履歴で現在状態が `1` なら `StatusMismatch` です。[`Allowed`](formal/Domain.dfy#L62-L81) · [履歴の定義と判定](formal/Domain.dfy#L184-L204)
+たとえば `[-1 → 0, 0 → 1, 1 → 2]` と現在状態 `2` の組み合わせは `ValidHistory` です。同じ履歴で現在状態が `1` なら `StatusMismatch` です。[`Allowed`](formal/Domain.dfy#L62-L81) · [履歴の定義と判定](formal/Domain.dfy#L171-L191)
 
 ## 5. 残りのルールを探す
 
@@ -87,16 +87,20 @@ predicate HistoryStepsValid(edges: seq<HistoryEdge>) {
 | 引当・在庫調整・出荷 | [Reserve、Adjust、Ship](formal/Domain.dfy#L28-L60)。`Ship` の `nh-nr == h-r` は出荷前後で販売可能数が同じという保証です。 |
 | 受注で許される状態遷移 | [Allowed と Transition](formal/Domain.dfy#L62-L81)。`StatusValid` は番号の範囲、`Allowed` は状態の組み合わせを判定します。 |
 | カートの延長・失効・発注の境界 | [Touch、Expired、MayExpire、MayCheckout](formal/Domain.dfy#L83-L101)。期限ちょうどでは発注不可で、失効要求は現在の期限と一致する必要があります。 |
-| 明細の妥当性・商品重複・小計の上限 | [LineValid、RegisterProduct、AddLineAmount](formal/Domain.dfy#L157-L182) |
-| 作業担当、箱、配送担当・追跡番号の条件 | [作業・配送に関する述語](formal/Domain.dfy#L206-L224) |
+| 明細の妥当性・商品重複・小計の上限 | [LineValid、RegisterProduct、AddLineAmount](formal/Domain.dfy#L144-L169) |
+| 作業担当、箱、配送担当・追跡番号の条件 | [作業・配送に関する述語](formal/Domain.dfy#L193-L211) |
 
 ## 検証の範囲
 
 Dafny は事前条件を満たす入力について、処理が契約を満たすことや、添字アクセスなどが安全であることを静的に検証します。実行用の述語・関数・メソッドは Go に生成され、`requires`・`ensures`・`assert` は静的検証に使われます。Go 側の入力検査、DB の保存、トランザクション、外部サービスとの連携は、別途テストで確認する範囲です。[設計](docs/design.md) · [検証結果](docs/verification.md) · [検証の実行方法](README.md#形式検証テスト)
 
 
-## Commandの実行手順
+## Commandの更新内容を読む
 
-Goのワーカーは `ExecuteCommand` を1回呼びます。DafnyがCommandを読み、権限に応じて処理を分岐させ、必要な読み書きを `Effects` に指示します。GoはSQL、集約との型変換、PDF生成などの操作を提供します。発注や在庫の引当・解放・出荷では、商品ID順に並べた `seq<StockLine>` をDafnyが走査します。
+Goが読み込んだスナップショットを `DecideCommand` に渡します。結果の `CommandPlan` は、拒否、変更なし、または適用すべき更新内容です。
 
-`Effects` のゴーストフィールドは、トランザクションの開始、業務処理の成功、完了記録の準備、確認済みのコミットを表します。Dafnyはこの契約を前提に、業務処理の成功後に完了を記録し、コミット成功時だけ正常完了を返すことを検証します。Go側の同一トランザクションへの書き込みや競合時のDB状態は、実PostgreSQLの結合テストで確認します。 [Commandフロー](formal/CommandFlow.dfy) · [Goの操作実装](internal/app/command_effects.go)
+- `map<string, int>` は商品IDから数量を引く不変のマップです。`Release` は、入力と同じ商品をキーに持ち、各値が元の数量の負数になることを保証します。
+- 配送中の受注に対し、担当運送業者が有効な配送完了Commandを送ると、更新内容は配送完了を指定します。配送完了の更新内容には、その受注の付与ポイント数と請求書作成が必ず入ります。請求書作成を除いた変異を検証で拒否します。
+- Goが更新内容を実PostgreSQLへ適用します。Command完了と業務データの一括保存、拒否時のロールバック、実際のPDFとメールは結合テストとE2Eで確認します。
+
+[Commandの仕様](formal/CommandFlow.dfy) · [更新内容の適用](internal/app/command_plan.go) · [トランザクション](internal/app/command_execution.go)

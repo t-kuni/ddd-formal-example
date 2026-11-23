@@ -83,22 +83,7 @@ func fixture(t *testing.T) Order {
 	}
 	return o
 }
-func TestExpirationAndPrice(t *testing.T) {
-	actor, _ := ParseID[ActorTag](uuid.NewString())
-	pid, _ := ParseID[ProductTag](uuid.NewString())
-	c := NewCart(actor)
-	if _, _, e := c.Change(pid, CartQuantity{1}, 100); e != nil {
-		t.Fatal(e)
-	}
-	if c.Snapshot().Expires != 3700 || c.Expired(3699) || !c.Expired(3700) {
-		t.Fatal(c)
-	}
-	if _, _, e := c.Change(pid, CartQuantity{2}, 200); e != nil {
-		t.Fatal(e)
-	}
-	if c.Snapshot().Expires != 3800 {
-		t.Fatal(c)
-	}
+func TestOrderPrice(t *testing.T) {
 	o := fixture(t).Snapshot()
 	if o.Discount != 299 || o.Net != 2698 || o.Tax != 269 || o.Total != 2967 || o.Points != 26 {
 		t.Fatal(o)
@@ -160,30 +145,6 @@ func TestValueBoundariesAndRestore(t *testing.T) {
 	}
 	if restored.Snapshot().Total != o.Snapshot().Total {
 		t.Fatal("roundtrip mismatch")
-	}
-}
-
-func TestCartChangePlanAndExpiryOverflow(t *testing.T) {
-	actor, _ := ParseID[ActorTag](uuid.NewString())
-	product, _ := ParseID[ProductTag](uuid.NewString())
-	other, _ := ParseID[ProductTag](uuid.NewString())
-	cart := NewCart(actor)
-	for _, id := range []ProductID{product, other} {
-		if _, changed, err := cart.Change(id, CartQuantity{2}, 100); err != nil || !changed {
-			t.Fatalf("initial reservation: changed=%v err=%v", changed, err)
-		}
-	}
-	if _, changed, err := cart.Change(product, CartQuantity{2}, 200); err != nil || changed || cart.Snapshot().Expires != 3700 {
-		t.Fatalf("same quantity extended expiry: changed=%v err=%v", changed, err)
-	}
-	const maxTime = int64(1<<63 - 1)
-	if _, changed, err := cart.Change(product, CartQuantity{3}, maxTime); err == nil || changed || cart.Snapshot().Expires != 3700 || len(cart.Snapshot().Items) != 2 {
-		t.Fatalf("overflow changed cart: changed=%v err=%v cart=%+v", changed, err, cart.Snapshot())
-	}
-	delta, changed, err := cart.Change(product, CartQuantity{3}, 3700)
-	if err != nil || !changed || delta[product.String()] != 1 || delta[other.String()] != -2 ||
-		cart.Snapshot().Expires != 7300 || len(cart.Snapshot().Items) != 1 {
-		t.Fatalf("expired cart reset: delta=%v changed=%v err=%v cart=%+v", delta, changed, err, cart.Snapshot())
 	}
 }
 

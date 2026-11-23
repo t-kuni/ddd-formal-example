@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"os"
 	"os/exec"
 	"testing"
@@ -75,6 +76,13 @@ func TestLifecycleAndIdempotency(t *testing.T) {
 	sku := store.ID("P-1001")
 	var initial domain.Stock
 	load(t, s, "stock", sku, &initial)
+	var loyalty domain.Loyalty
+	customer := store.ID("customer-a")
+	var pointsBefore int64
+	e := s.DB.Pool.QueryRow(ctx, "SELECT points FROM loyalty_accounts WHERE customer_id=$1", customer).Scan(&pointsBefore)
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		t.Fatal(e)
+	}
 	success(t, run(t, s, "customer-a", "cart.set", Payload{ProductID: sku, Quantity: 2}))
 	addr := domain.Address{Company: "テスト商事", Recipient: "検証担当", Postal: "100-0001", Text: "東京都千代田区1", Phone: "03-0000-0000"}
 	c := run(t, s, "customer-a", "order.checkout", Payload{Address: addr, Coupon: "WELCOME10"})
@@ -106,9 +114,11 @@ func TestLifecycleAndIdempotency(t *testing.T) {
 	if o.Status() != domain.Delivered || o.Snapshot().Total != 4752 || o.Snapshot().Points != 43 {
 		t.Fatalf("unexpected order %+v", o)
 	}
-	var loyalty domain.Loyalty
-	load(t, s, "loyalty", store.ID("customer-a"), &loyalty)
+	load(t, s, "loyalty", customer, &loyalty)
 	before := loyalty.Balance().Value()
+	if before-pointsBefore != o.Snapshot().Points {
+		t.Fatalf("points credited = %d, want %d", before-pointsBefore, o.Snapshot().Points)
+	}
 	duplicate := run(t, s, "carrier", "order.deliver", Payload{OrderID: id})
 	if duplicate.Status != "rejected" {
 		t.Fatal("second delivery allowed")
@@ -134,7 +144,8 @@ func TestExpiryAndRollback(t *testing.T) {
 	s := testService(t)
 	ctx := context.Background()
 	cid := store.ID("customer-b")
-	sku := store.ID("P-2001")
+	products := sortedKeys(map[string]int64{store.ID("P-2001"): 0, store.ID("P-3001"): 0})
+	sku := products[0]
 	success(t, run(t, s, "customer-b", "cart.set", Payload{ProductID: sku, Quantity: 3}))
 	var c domain.Cart
 	load(t, s, "cart", cid, &c)
@@ -160,6 +171,16 @@ func TestExpiryAndRollback(t *testing.T) {
 	_, e := s.DB.Pool.Exec(ctx, `UPDATE carts SET expires_at=$2,version=version+1 WHERE customer_id=$1`, cid, past)
 	if e != nil {
 		t.Fatal(e)
+	}
+	// The plan releases the expired item before trying to reserve the second SKU.
+	rejected = run(t, s, "customer-b", "cart.set", Payload{ProductID: products[1], Quantity: 10000})
+	if rejected.Status != "rejected" {
+		t.Fatalf("partial cart plan status = %s", rejected.Status)
+	}
+	load(t, s, "stock", sku, &after)
+	load(t, s, "cart", cid, &c)
+	if after != before || c.Snapshot().Expires != past || c.Snapshot().Items[sku] != 3 {
+		t.Fatal("rejected plan committed a partial update")
 	}
 	if err := s.Expire(ctx); err != nil {
 		t.Fatal(err)
@@ -218,6 +239,22 @@ func TestOptimisticLock(t *testing.T) {
 	}
 	if e = u2.Save("stock", id, b); !errors.Is(e, domain.ErrConflict) {
 		t.Fatal("lost update not detected", e)
+	}
+
+	version := u1.Versions["stock"+id]
+	payload := Payload{ProductID: id, Delta: 2, ExpectedVersion: version, Note: "検証用調整"}
+	if denied := run(t, s, "customer-a", "stock.adjust", payload); denied.Status != "rejected" {
+		t.Fatalf("customer stock adjustment status = %s", denied.Status)
+	}
+	success(t, run(t, s, "operator", "stock.adjust", payload))
+	if stale := run(t, s, "operator", "stock.adjust", payload); stale.Status != "rejected" {
+		t.Fatalf("stale stock adjustment status = %s", stale.Status)
+	}
+	var current domain.Stock
+	load(t, s, "stock", id, &current)
+	if current.Snapshot().OnHand != a.Snapshot().OnHand+2 ||
+		current.Snapshot().Reserved != a.Snapshot().Reserved {
+		t.Fatalf("incorrect stock adjustment: %+v", current.Snapshot())
 	}
 }
 
