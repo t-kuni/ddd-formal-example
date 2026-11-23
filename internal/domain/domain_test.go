@@ -2,10 +2,12 @@ package domain
 
 import (
 	"encoding/json"
-	"github.com/google/uuid"
 	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+
 	core "wholesale.local/orbit/generated/Domain"
 	d "wholesale.local/orbit/generated/dafny"
 )
@@ -158,5 +160,75 @@ func TestValueBoundariesAndRestore(t *testing.T) {
 	}
 	if restored.Snapshot().Total != o.Snapshot().Total {
 		t.Fatal("roundtrip mismatch")
+	}
+}
+
+func TestCartChangePlanAndExpiryOverflow(t *testing.T) {
+	actor, _ := ParseID[ActorTag](uuid.NewString())
+	product, _ := ParseID[ProductTag](uuid.NewString())
+	other, _ := ParseID[ProductTag](uuid.NewString())
+	cart := NewCart(actor)
+	for _, id := range []ProductID{product, other} {
+		if _, changed, err := cart.Change(id, CartQuantity{2}, 100); err != nil || !changed {
+			t.Fatalf("initial reservation: changed=%v err=%v", changed, err)
+		}
+	}
+	if _, changed, err := cart.Change(product, CartQuantity{2}, 200); err != nil || changed || cart.Snapshot().Expires != 3700 {
+		t.Fatalf("same quantity extended expiry: changed=%v err=%v", changed, err)
+	}
+	const maxTime = int64(1<<63 - 1)
+	if _, changed, err := cart.Change(product, CartQuantity{3}, maxTime); err == nil || changed || cart.Snapshot().Expires != 3700 || len(cart.Snapshot().Items) != 2 {
+		t.Fatalf("overflow changed cart: changed=%v err=%v cart=%+v", changed, err, cart.Snapshot())
+	}
+	delta, changed, err := cart.Change(product, CartQuantity{3}, 3700)
+	if err != nil || !changed || delta[product.String()] != 1 || delta[other.String()] != -2 ||
+		cart.Snapshot().Expires != 7300 || len(cart.Snapshot().Items) != 1 {
+		t.Fatalf("expired cart reset: delta=%v changed=%v err=%v cart=%+v", delta, changed, err, cart.Snapshot())
+	}
+}
+
+func TestOrderRestoreFulfillmentRequirements(t *testing.T) {
+	order := fixture(t)
+	actor, _ := ParseID[ActorTag](uuid.NewString())
+	now := time.Now()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(order.Move(Accepted, actor, "", now))
+	must(order.AssignWorker(actor))
+	must(order.Move(Picking, actor, "", now))
+	must(order.Pack(BoxCount{2}, WeightGrams{1200}))
+	must(order.Move(Packed, actor, "", now))
+	must(order.AssignCarrier(actor, "TRACK-1"))
+	must(order.Move(Shipping, actor, "", now))
+	for _, tc := range []struct {
+		name   string
+		change func(*OrderSnapshot)
+	}{
+		{"valid", nil},
+		{"missing worker", func(s *OrderSnapshot) { s.WorkerID = "" }},
+		{"missing boxes", func(s *OrderSnapshot) { s.Boxes = nil }},
+		{"invalid weight", func(s *OrderSnapshot) { s.Boxes[0].Weight = 500001 }},
+		{"missing tracking", func(s *OrderSnapshot) { s.Tracking = "" }},
+		{"broken history", func(s *OrderSnapshot) { s.History[2].From = PaymentPending.Code() }},
+		{"history status mismatch", func(s *OrderSnapshot) { s.Status = Delivered.Code() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := order.Snapshot()
+			if tc.change != nil {
+				tc.change(&s)
+			}
+			b, err := json.Marshal(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var restored Order
+			if err := json.Unmarshal(b, &restored); (err != nil) != (tc.change != nil) {
+				t.Fatalf("restore error=%v", err)
+			}
+		})
 	}
 }

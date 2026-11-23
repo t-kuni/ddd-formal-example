@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
+
 	core "wholesale.local/orbit/generated/Domain"
 	d "wholesale.local/orbit/generated/dafny"
 )
@@ -124,7 +126,7 @@ func (c *Cart) UnmarshalJSON(b []byte) error {
 		return e
 	}
 	v := NewCart(id)
-	if x.Expires < 0 || len(x.Items) > 100 {
+	if !core.Companion_Default___.CartShapeValid(d.IntOf(len(x.Items)), d.IntOfInt64(x.Expires)) {
 		return Invalid("カート不変条件違反")
 	}
 	v.expires = x.Expires
@@ -147,7 +149,7 @@ func (c Cart) Expired(now int64) bool {
 }
 func (c *Cart) Change(id ProductID, requested CartQuantity, now int64) (map[string]int64, bool, error) {
 	quantity := requested.Units()
-	if !c.customer.Valid() || !id.Valid() || now < 0 {
+	if !c.customer.Valid() || !id.Valid() || !core.Companion_Default___.TimestampValid(d.IntOfInt64(now)) {
 		return nil, false, Invalid("未初期化のカート・ID・時刻")
 	}
 	var qty OrderQuantity
@@ -158,44 +160,45 @@ func (c *Cart) Change(id ProductID, requested CartQuantity, now int64) (map[stri
 			return nil, false, e
 		}
 	}
-	if len(c.items) >= 100 && c.items[id].Units() == 0 && quantity > 0 && !c.Expired(now) {
+	plan := core.Companion_Default___.PlanCartChange(d.IntOf(len(c.items)),
+		d.IntOfInt64(c.items[id].Units()), d.IntOfInt64(quantity), d.IntOfInt64(now), d.IntOfInt64(c.expires))
+	switch {
+	case plan.Is_CartFull():
 		return nil, false, Invalid("カートは100商品までです")
-	}
-	if quantity == 0 && len(c.items) == 0 {
+	case plan.Is_CartUnchanged():
 		return nil, false, nil
-	}
-	if quantity == c.items[id].Units() && !c.Expired(now) {
-		return nil, false, nil
+	case plan.Is_CartTimeOutOfRange():
+		return nil, false, Invalid("カートの有効期限が範囲外です")
 	}
 	delta := map[string]int64{}
-	if c.Expired(now) {
+	if plan.Dtor_reset() {
 		for pid, q := range c.items {
-			delta[pid.String()] = -q.Units()
+			delta[pid.String()] = core.Companion_Default___.ReleasedReservation(d.IntOfInt64(q.Units())).Int64()
 		}
 		c.items = map[ProductID]OrderQuantity{}
 	}
-	delta[id.String()] += quantity - c.items[id].Units()
+	delta[id.String()] = plan.Dtor_delta().Int64()
 	if quantity == 0 {
 		delete(c.items, id)
 	} else {
 		c.items[id] = qty
 	}
-	c.expires = core.Companion_Default___.Touch(d.IntOfInt64(now)).Int64()
+	c.expires = plan.Dtor_expiry().Int64()
 	return delta, true, nil
 }
 func (c *Cart) Expire(requested, now int64) (map[string]int64, bool) {
-	if !core.Companion_Default___.MayExpire(d.IntOfInt64(now),d.IntOfInt64(c.expires),d.IntOfInt64(requested),len(c.items)>0) {
+	if !core.Companion_Default___.MayExpire(d.IntOfInt64(now), d.IntOfInt64(c.expires), d.IntOfInt64(requested), len(c.items) > 0) {
 		return nil, false
 	}
 	delta := map[string]int64{}
 	for id, q := range c.items {
-		delta[id.String()] = -q.Units()
+		delta[id.String()] = core.Companion_Default___.ReleasedReservation(d.IntOfInt64(q.Units())).Int64()
 	}
 	c.items = map[ProductID]OrderQuantity{}
 	return delta, true
 }
 func (c *Cart) Checkout(now int64) (map[string]int64, error) {
-	if !core.Companion_Default___.MayCheckout(d.IntOfInt64(now),d.IntOfInt64(c.expires),len(c.items)>0) {
+	if !core.Companion_Default___.MayCheckout(d.IntOfInt64(now), d.IntOfInt64(c.expires), len(c.items) > 0) {
 		return nil, Invalid("カートが空、または有効期限切れです")
 	}
 	items := c.Snapshot().Items
@@ -221,7 +224,7 @@ type LineSnapshot struct {
 }
 
 func NewLine(id ProductID, sku, name, unit string, q OrderQuantity, p UnitPrice) (Line, error) {
-	if !id.Valid() || q.Units() < 1 || name == "" {
+	if !core.Companion_Default___.LineValid(id.Valid(), name != "", d.IntOfInt64(q.Units()), d.IntOfInt64(p.Yen())) {
 		return Line{}, Invalid("商品明細が不正です")
 	}
 	return Line{id, sku, name, unit, q, p}, nil
@@ -291,7 +294,7 @@ type Order struct {
 }
 
 func NewOrder(id OrderID, customer ActorID, lines []Line, address ShippingAddress, rate DiscountRate, coupon, requested, note string, now time.Time) (Order, error) {
-	if !id.Valid() || !customer.Valid() || len(lines) == 0 || len(lines) > 100 || now.Unix() < 0 {
+	if !id.Valid() || !customer.Valid() || !core.Companion_Default___.OrderLineCountValid(d.IntOf(len(lines))) || !core.Companion_Default___.TimestampValid(d.IntOfInt64(now.Unix())) {
 		return Order{}, Invalid("受注の必須項目が不正です")
 	}
 	if _, e := NewShippingAddress(address.Snapshot()); e != nil {
@@ -304,23 +307,25 @@ func NewOrder(id OrderID, customer ActorID, lines []Line, address ShippingAddres
 	return o, nil
 }
 func (o *Order) calculate() error {
-	var sum int64
-	seen := map[ProductID]bool{}
+	sum := d.Zero
+	seen := d.SetOf()
 	for _, l := range o.lines {
-		if seen[l.product] {
+		var ok bool
+		ok, seen = core.Companion_Default___.RegisterProduct(seen, d.SeqOfString(l.product.String()))
+		if !ok {
 			return Invalid("同一商品が明細に重複しています")
 		}
-		seen[l.product] = true
-		if !l.product.Valid() || l.quantity.Units() < 1 {
+		quantity, unitPrice := d.IntOfInt64(l.quantity.Units()), d.IntOfInt64(l.price.Yen())
+		if !core.Companion_Default___.LineValid(l.product.Valid(), l.name != "", quantity, unitPrice) {
 			return Invalid("明細が不正です")
 		}
-		sum += l.quantity.Units() * l.price.Yen()
-		if sum > 1000000000000 {
+		ok, sum = core.Companion_Default___.AddLineAmount(sum, quantity, unitPrice)
+		if !ok {
 			return Invalid("受注金額の上限を超えています")
 		}
 	}
-	discount, net, tax, total, points := core.Companion_Default___.Price(d.IntOfInt64(sum), d.IntOfInt64(o.rate.Percent()))
-	o.subtotal = Money{sum}
+	discount, net, tax, total, points := core.Companion_Default___.Price(sum, d.IntOfInt64(o.rate.Percent()))
+	o.subtotal = Money{sum.Int64()}
 	o.discount = Money{discount.Int64()}
 	o.net = Money{net.Int64()}
 	o.tax = Money{tax.Int64()}
@@ -405,24 +410,23 @@ func (o *Order) UnmarshalJSON(b []byte) error {
 	if v.total.Yen() != x.Total || v.subtotal.Yen() != x.Subtotal || v.discount.Yen() != x.Discount || v.net.Yen() != x.Net || v.tax.Yen() != x.Tax || v.points.Value() != x.Points {
 		return Invalid("保存された受注金額が不変条件に違反しています")
 	}
-	if len(x.History) == 0 || x.History[0].From != -1 || x.History[0].To != 0 {
-		return Invalid("受注履歴の初期状態が不正です")
-	}
-	previous := 0
+	edges := make([]interface{}, len(x.History))
 	for i, h := range x.History {
+		edges[i] = core.Companion_HistoryEdge_.Create_HistoryEdge_(d.IntOf(h.From), d.IntOf(h.To))
+	}
+	check := core.Companion_Default___.CheckHistory(d.SeqOf(edges...), d.IntOf(x.Status))
+	switch {
+	case check.Is_InvalidStart():
+		return Invalid("受注履歴の初期状態が不正です")
+	case check.Is_InvalidStep():
+		return Invalid("受注履歴の遷移が不正です")
+	case check.Is_StatusMismatch():
+		return Invalid("受注状態と履歴が一致しません")
+	}
+	for _, h := range x.History {
 		if _, e := ParseID[ActorTag](h.Actor); e != nil {
 			return e
 		}
-		if i == 0 {
-			continue
-		}
-		if h.From != previous || !core.Companion_Default___.Allowed(d.IntOf(h.From), d.IntOf(h.To)) {
-			return Invalid("受注履歴の遷移が不正です")
-		}
-		previous = h.To
-	}
-	if previous != x.Status {
-		return Invalid("受注状態と履歴が一致しません")
 	}
 	v.status = status
 	v.number = x.Number
@@ -448,31 +452,31 @@ func (o *Order) UnmarshalJSON(b []byte) error {
 	return nil
 }
 func (o Order) validateFulfillment(next OrderStatus) error {
-	if (next == Picking || next == PickBlocked || next == Packed || next == Shipping || next == DeliveryFailed || next == Delivered || next == Returned) && !o.worker.Valid() {
+	status := d.IntOf(next.Code())
+	if !core.Companion_Default___.WorkerReady(status, o.worker.Valid()) {
 		return Invalid("作業担当者が未設定です")
 	}
-	if next == Packed || next == Shipping || next == DeliveryFailed || next == Delivered || next == Returned {
-		if len(o.boxes) < 1 || len(o.boxes) > 100 {
-			return Invalid("箱情報が未設定です")
-		}
+	if !core.Companion_Default___.BoxesReady(status, d.IntOf(len(o.boxes))) {
+		return Invalid("箱情報が未設定です")
+	}
+	if core.Companion_Default___.NeedsBoxes(status) {
 		for _, b := range o.boxes {
-			if _, e := uuid.Parse(b.ID); e != nil || b.Weight < 1 || b.Weight > 500000 {
+			_, e := uuid.Parse(b.ID)
+			if !core.Companion_Default___.BoxValid(e == nil, d.IntOfInt64(b.Weight)) {
 				return Invalid("箱情報が不正です")
 			}
 		}
 	}
-	if next == Shipping || next == DeliveryFailed || next == Delivered || next == Returned {
-		if !o.carrier.Valid() || o.tracking == "" {
-			return Invalid("配送情報が未設定です")
-		}
+	if !core.Companion_Default___.CarrierReady(status, o.carrier.Valid(), o.tracking != "") {
+		return Invalid("配送情報が未設定です")
 	}
 	return nil
 }
 func (o *Order) AssignWorker(actor ActorID) error {
-	if !actor.Valid() || !(o.status == Accepted || o.status == PickBlocked) {
+	if !core.Companion_Default___.MayStartWork(d.IntOf(o.status.Code()), actor.Valid()) {
 		return Invalid("作業開始できない状態です")
 	}
-	if o.worker.Valid() && o.worker != actor {
+	if !core.Companion_Default___.MayAssignWorker(o.worker.Valid(), o.worker == actor) {
 		return Invalid("別の担当者が作業中です")
 	}
 	o.worker = actor
@@ -480,7 +484,7 @@ func (o *Order) AssignWorker(actor ActorID) error {
 }
 func (o *Order) Pack(boxes BoxCount, grams WeightGrams) error {
 	count, weight := boxes.value, grams.value
-	if o.status != Picking || count < 1 || count > 100 || weight < 1 || weight > 500000 {
+	if !core.Companion_Default___.MayPack(d.IntOf(o.status.Code()), d.IntOf(count), d.IntOfInt64(weight)) {
 		return Invalid("梱包状態・箱数・重量が不正です")
 	}
 	o.boxes = []Box{}
@@ -490,7 +494,7 @@ func (o *Order) Pack(boxes BoxCount, grams WeightGrams) error {
 	return nil
 }
 func (o *Order) AssignCarrier(actor ActorID, tracking string) error {
-	if o.status != Packed || !actor.Valid() || tracking == "" || len(tracking) > 100 {
+	if !core.Companion_Default___.MayAssignCarrier(d.IntOf(o.status.Code()), actor.Valid(), d.IntOf(len(tracking))) {
 		return Invalid("配送情報が不正です")
 	}
 	o.carrier = actor
@@ -517,11 +521,11 @@ type Loyalty struct{ balance Points }
 
 func (l Loyalty) Balance() Points { return l.balance }
 func (l *Loyalty) Credit(p Points) error {
-	next, e := NewPoints(l.balance.Value() + p.Value())
-	if e != nil {
-		return e
+	ok, next := core.Companion_Default___.Credit(d.IntOfInt64(l.balance.Value()), d.IntOfInt64(p.Value()))
+	if !ok {
+		return Invalid("ポイントが範囲外です")
 	}
-	l.balance = next
+	l.balance = Points{next.Int64()}
 	return nil
 }
 func (l Loyalty) MarshalJSON() ([]byte, error) {

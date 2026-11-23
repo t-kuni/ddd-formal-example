@@ -38,7 +38,7 @@
 
 | 修正内容 | 主な場所 |
 |---|---|
-| 在庫・期限・遷移・金額の形式仕様 | `formal/Domain.dfy` |
+| 在庫・カートの引当と期限・受注履歴・配送条件・値の範囲・金額とポイントの形式仕様 | `formal/Domain.dfy` |
 | 値オブジェクト・集約 | `internal/domain/values.go`, `types.go`, `aggregate.go` |
 | Command受付・冪等性・業務処理 | `internal/app/commands.go` |
 | 請求書・SMTP | `internal/app/invoice.go` |

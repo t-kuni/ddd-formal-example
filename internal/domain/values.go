@@ -3,8 +3,12 @@ package domain
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	"strings"
+
+	"github.com/google/uuid"
+
+	core "wholesale.local/orbit/generated/Domain"
+	d "wholesale.local/orbit/generated/dafny"
 )
 
 // Tags make resource identities non-interchangeable at compile time.
@@ -53,43 +57,43 @@ type UnitPrice struct{ value int64 }
 type DiscountRate struct{ value int64 }
 
 func NewQuantity(v int64) (Quantity, error) {
-	if v < 0 || v > 1000000000 {
+	if !core.Companion_Default___.QuantityValid(d.IntOfInt64(v)) {
 		return Quantity{}, Invalid("在庫数量が範囲外です")
 	}
 	return Quantity{v}, nil
 }
 func NewOrderQuantity(v int64) (OrderQuantity, error) {
-	if v < 1 || v > 10000 {
+	if !core.Companion_Default___.OrderQuantityValid(d.IntOfInt64(v)) {
 		return OrderQuantity{}, Invalid("明細数量は1〜10000です")
 	}
 	return OrderQuantity{v}, nil
 }
 func NewReservationDelta(v int64) (ReservationDelta, error) {
-	if v < -1000000000 || v > 1000000000 {
+	if !core.Companion_Default___.StockDeltaValid(d.IntOfInt64(v)) {
 		return ReservationDelta{}, Invalid("引当増減数が範囲外です")
 	}
 	return ReservationDelta{v}, nil
 }
 func NewStockAdjustment(v int64) (StockAdjustment, error) {
-	if v < -1000000000 || v > 1000000000 {
+	if !core.Companion_Default___.StockDeltaValid(d.IntOfInt64(v)) {
 		return StockAdjustment{}, Invalid("在庫調整数が範囲外です")
 	}
 	return StockAdjustment{v}, nil
 }
 func NewMoney(v int64) (Money, error) {
-	if v < 0 || v > 1100000000000 {
+	if !core.Companion_Default___.MoneyValid(d.IntOfInt64(v)) {
 		return Money{}, Invalid("金額が範囲外です")
 	}
 	return Money{v}, nil
 }
 func NewUnitPrice(v int64) (UnitPrice, error) {
-	if v < 0 || v > 10000000 {
+	if !core.Companion_Default___.UnitPriceValid(d.IntOfInt64(v)) {
 		return UnitPrice{}, Invalid("単価が範囲外です")
 	}
 	return UnitPrice{v}, nil
 }
 func NewDiscountRate(v int64) (DiscountRate, error) {
-	if v < 0 || v > 100 {
+	if !core.Companion_Default___.DiscountRateValid(d.IntOfInt64(v)) {
 		return DiscountRate{}, Invalid("割引率は0〜100です")
 	}
 	return DiscountRate{v}, nil
@@ -120,7 +124,7 @@ const (
 )
 
 func ParseOrderStatus(v int) (OrderStatus, error) {
-	if v < 0 || v > 10 {
+	if !core.Companion_Default___.StatusValid(d.IntOf(v)) {
 		return 0, Invalid("未知の受注状態")
 	}
 	return OrderStatus(v), nil
@@ -133,7 +137,7 @@ type ShippingAddress struct{ value Address }
 
 func NewShippingAddress(a Address) (ShippingAddress, error) {
 	for name, v := range map[string]string{"会社名": a.Company, "担当者": a.Recipient, "郵便番号": a.Postal, "住所": a.Text, "電話番号": a.Phone} {
-		if strings.TrimSpace(v) == "" || len(v) > 750 {
+		if !core.Companion_Default___.TextFieldValid(strings.TrimSpace(v) != "", d.IntOf(len(v))) {
 			return ShippingAddress{}, Invalid(fmt.Sprintf("%sを入力してください（250文字程度まで）", name))
 		}
 	}
@@ -144,7 +148,7 @@ func (a ShippingAddress) Snapshot() Address { return a.value }
 type Points struct{ value int64 }
 
 func NewPoints(v int64) (Points, error) {
-	if v < 0 || v > 1000000000000000 {
+	if !core.Companion_Default___.PointsValid(d.IntOfInt64(v)) {
 		return Points{}, Invalid("ポイントが範囲外です")
 	}
 	return Points{v}, nil
@@ -154,7 +158,7 @@ func (p Points) Value() int64 { return p.value }
 type CartQuantity struct{ value int64 }
 
 func NewCartQuantity(v int64) (CartQuantity, error) {
-	if v < 0 || v > 10000 {
+	if !core.Companion_Default___.CartQuantityValid(d.IntOfInt64(v)) {
 		return CartQuantity{}, Invalid("カート数量は0〜10000です")
 	}
 	return CartQuantity{v}, nil
@@ -164,7 +168,7 @@ func (q CartQuantity) Units() int64 { return q.value }
 type BoxCount struct{ value int }
 
 func NewBoxCount(v int) (BoxCount, error) {
-	if v < 1 || v > 100 {
+	if !core.Companion_Default___.BoxCountValid(d.IntOf(v)) {
 		return BoxCount{}, Invalid("箱数は1〜100です")
 	}
 	return BoxCount{v}, nil
@@ -173,7 +177,7 @@ func NewBoxCount(v int) (BoxCount, error) {
 type WeightGrams struct{ value int64 }
 
 func NewWeightGrams(v int64) (WeightGrams, error) {
-	if v < 1 || v > 500000 {
+	if !core.Companion_Default___.WeightValid(d.IntOfInt64(v)) {
 		return WeightGrams{}, Invalid("重量は1〜500000gです")
 	}
 	return WeightGrams{v}, nil
