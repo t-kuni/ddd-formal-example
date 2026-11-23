@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	plan "wholesale.local/orbit/generated/CommandFlow"
 	d "wholesale.local/orbit/generated/dafny"
 	"wholesale.local/orbit/internal/domain"
@@ -15,12 +13,15 @@ import (
 )
 
 type commandAttempt struct {
-	unit    *store.Unit
-	command Command
-	actor   domain.Actor
-	now     time.Time
-	order   domain.Order
-	stock   *domain.Stock
+	unit     *store.Unit
+	command  Command
+	actor    domain.Actor
+	now      time.Time
+	order    domain.Order
+	stock    *domain.Stock
+	products map[string]domain.Product
+	stocks   map[string]*domain.Stock
+	loyalty  domain.Loyalty
 }
 
 func textValue(value string) d.Sequence { return d.UnicodeSeqOfUtf8Bytes(value) }
@@ -52,6 +53,7 @@ func (a *commandAttempt) input() plan.CommandInput {
 		d.IntOfInt64(p.ExpectedVersion), textValue(product.String()), err == nil,
 		d.IntOfInt64(p.Delta), d.IntOfInt64(p.Quantity), d.IntOfInt64(a.now.Unix()), d.IntOfInt64(p.Expires),
 		p.Success, textValue(p.Tracking), d.IntOf(p.BoxCount), d.IntOfInt64(p.WeightGrams),
+		textValue(p.OrderID), textValue(p.Coupon), textValue(a.command.ID),
 	)
 }
 
@@ -59,34 +61,28 @@ func missing(message string) plan.Snapshot {
 	return plan.Companion_Snapshot_.Create_Missing_(textValue(message))
 }
 
-func (a *commandAttempt) snapshot() (plan.Snapshot, error) {
-	p := a.command.Payload
-	switch a.command.Type {
-	case "cart.set", "cart.expire", "order.checkout":
-		return a.cartSnapshot()
-	case "stock.adjust":
-		product, err := domain.ParseID[domain.ProductTag](p.ProductID)
-		if err != nil {
-			return missing("商品IDが不正です"), nil
-		}
-		id := product.String()
+func (a *commandAttempt) read(request plan.ReadRequest) (plan.Snapshot, error) {
+	switch {
+	case request.Is_ReadCart():
+		return a.cartSnapshot(request.Dtor_customerId().VerbatimString(false))
+	case request.Is_ReadStock():
+		id := request.Dtor_productId().VerbatimString(false)
+		var err error
 		a.stock, err = loadStock(a.unit, id)
 		var denied *Rejection
 		if errors.As(err, &denied) {
 			return missing(denied.Message), nil
 		}
 		return plan.Companion_Snapshot_.Create_Stock_(d.IntOfInt64(a.unit.Versions["stock"+id])), err
+	case request.Is_ReadOrder():
+		return a.orderSnapshot(request.Dtor_orderId().VerbatimString(false))
 	default:
-		return a.orderSnapshot()
+		return plan.Snapshot{}, errors.New("invalid read request")
 	}
 }
 
-func (a *commandAttempt) cartSnapshot() (plan.Snapshot, error) {
+func (a *commandAttempt) cartSnapshot(customer string) (plan.Snapshot, error) {
 	p := a.command.Payload
-	customer := a.actor.ID
-	if a.command.Type == "cart.expire" {
-		customer = p.CustomerID
-	}
 	id, err := domain.ParseID[domain.ActorTag](customer)
 	if err != nil {
 		return missing("顧客IDが不正です"), nil
@@ -97,18 +93,6 @@ func (a *commandAttempt) cartSnapshot() (plan.Snapshot, error) {
 		return plan.Snapshot{}, err
 	}
 	coupon := plan.Companion_Coupon_.Create_NoCoupon_()
-	if a.command.Type == "order.checkout" && p.Coupon != "" {
-		var percent int64
-		err := a.unit.Tx.QueryRow(a.unit.Ctx, "SELECT percent FROM coupons WHERE code=$1", p.Coupon).Scan(&percent)
-		switch {
-		case errors.Is(err, pgx.ErrNoRows):
-			coupon = plan.Companion_Coupon_.Create_UnknownCoupon_()
-		case err != nil:
-			return plan.Snapshot{}, err
-		default:
-			coupon = plan.Companion_Coupon_.Create_CouponRate_(d.IntOfInt64(percent))
-		}
-	}
 	day := plan.Companion_RequestedDay_.Create_Unspecified_()
 	if p.RequestedDate != "" {
 		date, err := time.Parse(time.DateOnly, p.RequestedDate)
@@ -132,9 +116,8 @@ func calendarDay(t time.Time) d.Int {
 	return d.IntOf(year*10000 + int(month)*100 + day)
 }
 
-func (a *commandAttempt) orderSnapshot() (plan.Snapshot, error) {
-	p := a.command.Payload
-	id, err := domain.ParseID[domain.OrderTag](p.OrderID)
+func (a *commandAttempt) orderSnapshot(orderID string) (plan.Snapshot, error) {
+	id, err := domain.ParseID[domain.OrderTag](orderID)
 	if err != nil {
 		return missing("受注IDが不正です"), nil
 	}
@@ -208,9 +191,9 @@ func (a *commandAttempt) changeStock(changes plan.StockChanges) error {
 	}
 	// Acquire stock locks in the same order across transactions.
 	for _, id := range sortedKeys(items) {
-		stock, err := loadStock(a.unit, id)
-		if err != nil {
-			return err
+		stock, ok := a.stocks[id]
+		if !ok {
+			return fmt.Errorf("stock %s not loaded", id)
 		}
 		if changes.Is_Ship() {
 			qty, err := domain.NewOrderQuantity(items[id])
@@ -244,7 +227,8 @@ func (a *commandAttempt) checkout(p plan.CommandPlan) (map[string]any, error) {
 	if err != nil {
 		return nil, checked(err)
 	}
-	orderID, err := domain.ParseID[domain.OrderTag](command.ID)
+	newOrderID := p.Dtor_newOrderId().VerbatimString(false)
+	orderID, err := domain.ParseID[domain.OrderTag](newOrderID)
 	if err != nil {
 		return nil, checked(err)
 	}
@@ -270,24 +254,60 @@ func (a *commandAttempt) checkout(p plan.CommandPlan) (map[string]any, error) {
 	if err != nil {
 		return nil, checked(err)
 	}
-	var existing domain.Order
-	if err := a.unit.Load("order", command.ID, &existing); err != nil {
+	if err := a.unit.Save("order", newOrderID, order); err != nil {
 		return nil, err
 	}
-	if err := a.unit.Save("order", command.ID, order); err != nil {
-		return nil, err
+	return map[string]any{"orderId": newOrderID}, a.saveCart(customer, readItems(p.Dtor_remainingItems()), p.Dtor_cartExpiry().Int64())
+}
+
+func (a *commandAttempt) readDependencies(reads plan.Dependencies) error {
+	if err := a.readProducts(reads.Dtor_products()); err != nil {
+		return err
 	}
-	return map[string]any{"orderId": command.ID}, a.saveCart(customer, readItems(p.Dtor_remainingItems()), p.Dtor_cartExpiry().Int64())
+	a.stocks = make(map[string]*domain.Stock)
+	next := reads.Dtor_stocks().Iterator()
+	for value, ok := next(); ok; value, ok = next() {
+		id := value.(d.Sequence).VerbatimString(false)
+		stock, err := loadStock(a.unit, id)
+		if err != nil {
+			return err
+		}
+		a.stocks[id] = stock
+	}
+	if loyalty := reads.Dtor_loyalty(); loyalty.Is_Id() {
+		if err := a.unit.Load("loyalty", loyalty.Dtor_value().VerbatimString(false), &a.loyalty); err != nil {
+			return err
+		}
+	}
+	if order := reads.Dtor_newOrder(); order.Is_Id() {
+		var existing domain.Order
+		return a.unit.Load("order", order.Dtor_value().VerbatimString(false), &existing)
+	}
+	return nil
+}
+
+func (a *commandAttempt) readProducts(products d.Set) error {
+	a.products = make(map[string]domain.Product)
+	next := products.Iterator()
+	for value, ok := next(); ok; value, ok = next() {
+		id := value.(d.Sequence).VerbatimString(false)
+		var raw []byte
+		if err := a.unit.Tx.QueryRow(a.unit.Ctx, store.ProductQuery+" WHERE id=$1", id).Scan(&raw); err != nil {
+			return err
+		}
+		var product domain.Product
+		if err := json.Unmarshal(raw, &product); err != nil {
+			return err
+		}
+		a.products[id] = product
+	}
+	return nil
 }
 
 func (a *commandAttempt) orderLine(id string, quantity int64) (domain.Line, error) {
-	var raw []byte
-	if err := a.unit.Tx.QueryRow(a.unit.Ctx, store.ProductQuery+" WHERE id=$1", id).Scan(&raw); err != nil {
-		return domain.Line{}, err
-	}
-	var product domain.Product
-	if err := json.Unmarshal(raw, &product); err != nil {
-		return domain.Line{}, err
+	product, ok := a.products[id]
+	if !ok {
+		return domain.Line{}, fmt.Errorf("product %s not loaded", id)
 	}
 	pid, err := domain.ParseID[domain.ProductTag](id)
 	if err != nil {
@@ -385,14 +405,10 @@ func (a *commandAttempt) awardPoints(order domain.OrderSnapshot, amount int64) e
 	if _, err := a.unit.Tx.Exec(a.unit.Ctx, "INSERT INTO order_point_awards(order_id) VALUES($1)", order.ID); err != nil {
 		return err
 	}
-	var loyalty domain.Loyalty
-	if err := a.unit.Load("loyalty", order.CustomerID, &loyalty); err != nil {
+	if err := a.loyalty.Credit(points); err != nil {
 		return err
 	}
-	if err := loyalty.Credit(points); err != nil {
-		return err
-	}
-	return a.unit.Save("loyalty", order.CustomerID, loyalty)
+	return a.unit.Save("loyalty", order.CustomerID, a.loyalty)
 }
 
 func (a *commandAttempt) createInvoice(id string) error {

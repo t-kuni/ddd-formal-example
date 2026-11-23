@@ -97,10 +97,11 @@ Dafny は事前条件を満たす入力について、処理が契約を満た�
 
 ## Commandの更新内容を読む
 
-Goが読み込んだスナップショットを `DecideCommand` に渡します。結果の `CommandPlan` は、拒否、変更なし、または適用すべき更新内容です。
+ワーカーは `ExecuteCommand` にGoの `Effects` を渡します。Dafnyの `RequestState` が読み込み対象を決め、SQLの結果を `DecideCommand` に渡します。結果の `CommandPlan` は、拒否、変更なし、または適用すべき更新内容です。`DependenciesFor` は、その更新に必要な追加の読み込みを返します。
 
+- `RequestState` は、顧客が自分のカートを読むことと、失効処理ではシステム利用者が対象顧客のカートを読むことを契約に持ちます。
 - `map<string, int>` は商品IDから数量を引く不変のマップです。`Release` は、入力と同じ商品をキーに持ち、各値が元の数量の負数になることを保証します。
 - 配送中の受注に対し、担当運送業者が有効な配送完了Commandを送ると、更新内容は配送完了を指定します。配送完了の更新内容には、その受注の付与ポイント数と請求書作成が必ず入ります。請求書作成を除いた変異を検証で拒否します。
 - Goが更新内容を実PostgreSQLへ適用します。Command完了と業務データの一括保存、拒否時のロールバック、実際のPDFとメールは結合テストとE2Eで確認します。
 
-[Commandの仕様](formal/CommandFlow.dfy) · [更新内容の適用](internal/app/command_plan.go) · [トランザクション](internal/app/command_execution.go)
+[Commandの仕様](formal/CommandFlow.dfy) · [更新内容の適用](internal/app/command_plan.go) · [副作用の実装](internal/app/command_execution.go)

@@ -20,6 +20,12 @@ if "$DAFNY" verify formal/Domain.dfy .build/CommandFlowMutant.dfy > .build/comma
  echo 'ERROR: verifier accepted delivery without an invoice' >&2; exit 1
 fi
 grep -q 'postcondition could not be proved' .build/command-mutation-result.txt
+# A customer read must use the authenticated actor's identity.
+sed 's/else ReadCart(if input.kind == "cart.expire" then input.customer else input.actor)/else ReadCart(input.customer)/' formal/CommandFlow.dfy > .build/WrongCartMutant.dfy
+if "$DAFNY" verify formal/Domain.dfy .build/WrongCartMutant.dfy > .build/cart-read-mutation-result.txt 2>&1; then
+ echo 'ERROR: verifier accepted a cart read using the payload customer' >&2; exit 1
+fi
+grep -q 'postcondition could not be proved' .build/cart-read-mutation-result.txt
 printf 'Formal verification, generated-code consistency, mutation check: PASS\n'
 (
  cd api

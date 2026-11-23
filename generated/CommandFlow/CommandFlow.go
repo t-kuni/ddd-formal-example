@@ -170,7 +170,7 @@ func (_static *CompanionStruct_Default___) PlanCart(input CommandInput, cart Car
 	} else if _dafny.Companion_Sequence_.Equal((input).Dtor_kind(), _dafny.UnicodeSeqOfUtf8Bytes("order.checkout")) {
 		if !(m_Domain.Companion_Default___.MayCheckout((input).Dtor_now(), (cart).Dtor_expires(), (((cart).Dtor_items()).Cardinality()).Sign() == 1)) {
 			return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("カートが空、または有効期限切れです"))
-		} else if (((cart).Dtor_requestedDay()).Is_InvalidDate()) || ((((cart).Dtor_requestedDay()).Is_CalendarDay()) && ((((cart).Dtor_requestedDay()).Dtor_date()).Cmp((cart).Dtor_today()) < 0)) {
+		} else if !(Companion_Default___.ValidRequestedDay(cart)) {
 			return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("希望納品日が不正です"))
 		} else {
 			var _source0 Coupon = (cart).Dtor_coupon()
@@ -182,14 +182,14 @@ func (_static *CompanionStruct_Default___) PlanCart(input CommandInput, cart Car
 			}
 			{
 				if _source0.Is_NoCoupon() {
-					return Companion_CommandPlan_.Create_Checkout_((cart).Dtor_customerId(), (cart).Dtor_items(), _dafny.NewMapBuilder().ToMap(), (cart).Dtor_expires(), _dafny.Zero)
+					return Companion_CommandPlan_.Create_Checkout_((cart).Dtor_customerId(), (input).Dtor_commandId(), (cart).Dtor_items(), _dafny.NewMapBuilder().ToMap(), (cart).Dtor_expires(), _dafny.Zero)
 				}
 			}
 			{
 				var _0_percent _dafny.Int = _source0.Get_().(Coupon_CouponRate).Percent
 				_ = _0_percent
 				if m_Domain.Companion_Default___.DiscountRateValid(_0_percent) {
-					return Companion_CommandPlan_.Create_Checkout_((cart).Dtor_customerId(), (cart).Dtor_items(), _dafny.NewMapBuilder().ToMap(), (cart).Dtor_expires(), _0_percent)
+					return Companion_CommandPlan_.Create_Checkout_((cart).Dtor_customerId(), (input).Dtor_commandId(), (cart).Dtor_items(), _dafny.NewMapBuilder().ToMap(), (cart).Dtor_expires(), _0_percent)
 				} else {
 					return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("割引率は0〜100です"))
 				}
@@ -321,7 +321,7 @@ func (_static *CompanionStruct_Default___) PlanOrder(input CommandInput, version
 					return _dafny.SetOf()
 				})()
 				_ = _4_obligations
-				return Companion_CommandPlan_.Create_UpdateOrder_(_1_target, _2_prepare, _3_stock, _4_obligations)
+				return Companion_CommandPlan_.Create_UpdateOrder_(_1_target, (order).Dtor_customer(), _2_prepare, _3_stock, _4_obligations)
 			}
 		}
 	}
@@ -333,8 +333,58 @@ func (_static *CompanionStruct_Default___) EligibleDelivery(input CommandInput, 
 	return ((((_dafny.Companion_Sequence_.Equal((input).Dtor_kind(), _dafny.UnicodeSeqOfUtf8Bytes("order.deliver"))) && (_dafny.Companion_Sequence_.Equal((input).Dtor_role(), _dafny.UnicodeSeqOfUtf8Bytes("carrier")))) && (_dafny.Companion_Sequence_.Equal((input).Dtor_actor(), (order).Dtor_carrier()))) && (((order).Dtor_status()).Cmp(Companion_Default___.Shipping()) == 0)) && (Companion_Default___.VersionMatches((input).Dtor_expectedVersion(), version))
 }
 func (_static *CompanionStruct_Default___) DecideCommand(input CommandInput, snapshot Snapshot) CommandPlan {
+	var _source0 ReadRequest = Companion_Default___.RequestState(input)
+	_ = _source0
+	{
+		if _source0.Is_RejectRead() {
+			var _0_reason _dafny.Sequence = _source0.Get_().(ReadRequest_RejectRead).Reason
+			_ = _0_reason
+			return Companion_CommandPlan_.Create_Reject_(_0_reason)
+		}
+	}
+	{
+		if _source0.Is_ReadCart() {
+			var _1_customer _dafny.Sequence = _source0.Get_().(ReadRequest_ReadCart).CustomerId
+			_ = _1_customer
+			if (snapshot).Is_Missing() {
+				return Companion_CommandPlan_.Create_Reject_((snapshot).Dtor_message())
+			} else if !((snapshot).Is_Cart()) {
+				return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("カートが存在しません"))
+			} else if !_dafny.Companion_Sequence_.Equal(((snapshot).Dtor_state()).Dtor_customerId(), _1_customer) {
+				return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("カート所有者が一致しません"))
+			} else {
+				return Companion_Default___.PlanCart(input, (snapshot).Dtor_state())
+			}
+		}
+	}
+	{
+		if _source0.Is_ReadStock() {
+			var _2_product _dafny.Sequence = _source0.Get_().(ReadRequest_ReadStock).ProductId
+			_ = _2_product
+			if (snapshot).Is_Missing() {
+				return Companion_CommandPlan_.Create_Reject_((snapshot).Dtor_message())
+			} else if !((snapshot).Is_Stock()) {
+				return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("商品が存在しません"))
+			} else if !(Companion_Default___.VersionMatches((input).Dtor_expectedVersion(), (snapshot).Dtor_stockVersion())) {
+				return Companion_CommandPlan_.Create_Reject_(Companion_Default___.StaleVersion())
+			} else {
+				return Companion_CommandPlan_.Create_Adjust_(_2_product, (input).Dtor_stockDelta())
+			}
+		}
+	}
+	{
+		if (snapshot).Is_Missing() {
+			return Companion_CommandPlan_.Create_Reject_((snapshot).Dtor_message())
+		} else if !((snapshot).Is_Order()) {
+			return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("受注が存在しません"))
+		} else {
+			return Companion_Default___.PlanOrder(input, (snapshot).Dtor_orderVersion(), (snapshot).Dtor_order(), (snapshot).Dtor_lines())
+		}
+	}
+}
+func (_static *CompanionStruct_Default___) RequestState(input CommandInput) ReadRequest {
 	if !(Companion_Default___.InputSizeValid(input)) {
-		return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("入力が長すぎます"))
+		return Companion_ReadRequest_.Create_RejectRead_(_dafny.UnicodeSeqOfUtf8Bytes("入力が長すぎます"))
 	} else if (_dafny.SetOf(_dafny.UnicodeSeqOfUtf8Bytes("cart.set"), _dafny.UnicodeSeqOfUtf8Bytes("cart.expire"), _dafny.UnicodeSeqOfUtf8Bytes("order.checkout"))).Contains((input).Dtor_kind()) {
 		var _0_role _dafny.Sequence = (func() _dafny.Sequence {
 			if _dafny.Companion_Sequence_.Equal((input).Dtor_kind(), _dafny.UnicodeSeqOfUtf8Bytes("cart.expire")) {
@@ -344,42 +394,249 @@ func (_static *CompanionStruct_Default___) DecideCommand(input CommandInput, sna
 		})()
 		_ = _0_role
 		if !_dafny.Companion_Sequence_.Equal((input).Dtor_role(), _0_role) {
-			return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("この利用者には操作権限がありません"))
-		} else if (snapshot).Is_Missing() {
-			return Companion_CommandPlan_.Create_Reject_((snapshot).Dtor_message())
-		} else if !((snapshot).Is_Cart()) {
-			return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("カートが存在しません"))
-		} else if !_dafny.Companion_Sequence_.Equal(((snapshot).Dtor_state()).Dtor_customerId(), (func() _dafny.Sequence {
-			if _dafny.Companion_Sequence_.Equal((input).Dtor_kind(), _dafny.UnicodeSeqOfUtf8Bytes("cart.expire")) {
-				return (input).Dtor_customer()
-			}
-			return (input).Dtor_actor()
-		})()) {
-			return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("カート所有者が一致しません"))
+			return Companion_ReadRequest_.Create_RejectRead_(_dafny.UnicodeSeqOfUtf8Bytes("この利用者には操作権限がありません"))
 		} else {
-			return Companion_Default___.PlanCart(input, (snapshot).Dtor_state())
+			return Companion_ReadRequest_.Create_ReadCart_((func() _dafny.Sequence {
+				if _dafny.Companion_Sequence_.Equal((input).Dtor_kind(), _dafny.UnicodeSeqOfUtf8Bytes("cart.expire")) {
+					return (input).Dtor_customer()
+				}
+				return (input).Dtor_actor()
+			})())
 		}
 	} else if _dafny.Companion_Sequence_.Equal((input).Dtor_kind(), _dafny.UnicodeSeqOfUtf8Bytes("stock.adjust")) {
 		if !_dafny.Companion_Sequence_.Equal((input).Dtor_role(), _dafny.UnicodeSeqOfUtf8Bytes("operator")) {
-			return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("この利用者には操作権限がありません"))
+			return Companion_ReadRequest_.Create_RejectRead_(_dafny.UnicodeSeqOfUtf8Bytes("この利用者には操作権限がありません"))
 		} else if ((!((input).Dtor_productValid())) || (!(m_Domain.Companion_Default___.StockDeltaValid((input).Dtor_stockDelta())))) || (((input).Dtor_noteBytes()).Sign() == 0) {
-			return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("商品・調整数・理由を入力してください"))
-		} else if (snapshot).Is_Missing() {
-			return Companion_CommandPlan_.Create_Reject_((snapshot).Dtor_message())
-		} else if !((snapshot).Is_Stock()) {
-			return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("商品が存在しません"))
-		} else if !(Companion_Default___.VersionMatches((input).Dtor_expectedVersion(), (snapshot).Dtor_stockVersion())) {
-			return Companion_CommandPlan_.Create_Reject_(Companion_Default___.StaleVersion())
+			return Companion_ReadRequest_.Create_RejectRead_(_dafny.UnicodeSeqOfUtf8Bytes("商品・調整数・理由を入力してください"))
 		} else {
-			return Companion_CommandPlan_.Create_Adjust_((input).Dtor_product(), (input).Dtor_stockDelta())
+			return Companion_ReadRequest_.Create_ReadStock_((input).Dtor_product())
 		}
-	} else if (snapshot).Is_Missing() {
-		return Companion_CommandPlan_.Create_Reject_((snapshot).Dtor_message())
-	} else if !((snapshot).Is_Order()) {
-		return Companion_CommandPlan_.Create_Reject_(_dafny.UnicodeSeqOfUtf8Bytes("受注が存在しません"))
+	} else if (_dafny.SetOf(_dafny.UnicodeSeqOfUtf8Bytes("order.pay"), _dafny.UnicodeSeqOfUtf8Bytes("order.cancel"), _dafny.UnicodeSeqOfUtf8Bytes("order.pick"), _dafny.UnicodeSeqOfUtf8Bytes("order.block"), _dafny.UnicodeSeqOfUtf8Bytes("order.pack"), _dafny.UnicodeSeqOfUtf8Bytes("order.dispatch"), _dafny.UnicodeSeqOfUtf8Bytes("order.delivery_failed"), _dafny.UnicodeSeqOfUtf8Bytes("order.redeliver"), _dafny.UnicodeSeqOfUtf8Bytes("order.deliver"), _dafny.UnicodeSeqOfUtf8Bytes("order.return"))).Contains((input).Dtor_kind()) {
+		return Companion_ReadRequest_.Create_ReadOrder_((input).Dtor_orderId())
 	} else {
-		return Companion_Default___.PlanOrder(input, (snapshot).Dtor_orderVersion(), (snapshot).Dtor_order(), (snapshot).Dtor_lines())
+		return Companion_ReadRequest_.Create_RejectRead_(_dafny.UnicodeSeqOfUtf8Bytes("未対応のCommandです"))
 	}
+}
+func (_static *CompanionStruct_Default___) NeedsCoupon(input CommandInput, snapshot Snapshot) bool {
+	return (((((_dafny.Companion_Sequence_.Equal((input).Dtor_kind(), _dafny.UnicodeSeqOfUtf8Bytes("order.checkout"))) && (!_dafny.Companion_Sequence_.Equal((input).Dtor_couponCode(), _dafny.UnicodeSeqOfUtf8Bytes("")))) && ((snapshot).Is_Cart())) && (Companion_Default___.VersionMatches((input).Dtor_expectedVersion(), ((snapshot).Dtor_state()).Dtor_version()))) && (m_Domain.Companion_Default___.MayCheckout((input).Dtor_now(), ((snapshot).Dtor_state()).Dtor_expires(), ((((snapshot).Dtor_state()).Dtor_items()).Cardinality()).Sign() == 1))) && (Companion_Default___.ValidRequestedDay((snapshot).Dtor_state()))
+}
+func (_static *CompanionStruct_Default___) ValidRequestedDay(cart CartState) bool {
+	return (((cart).Dtor_requestedDay()).Is_Unspecified()) || ((((cart).Dtor_requestedDay()).Is_CalendarDay()) && ((((cart).Dtor_requestedDay()).Dtor_date()).Cmp((cart).Dtor_today()) >= 0))
+}
+func (_static *CompanionStruct_Default___) DependenciesFor(plan CommandPlan) Dependencies {
+	var _source0 CommandPlan = plan
+	_ = _source0
+	{
+		if _source0.Is_Checkout() {
+			var _0_orderId _dafny.Sequence = _source0.Get_().(CommandPlan_Checkout).NewOrderId
+			_ = _0_orderId
+			var _1_lines _dafny.Map = _source0.Get_().(CommandPlan_Checkout).OrderLines
+			_ = _1_lines
+			return Companion_Dependencies_.Create_Dependencies_((_1_lines).Keys(), _dafny.SetOf(), Companion_Reference_.Create_Absent_(), Companion_Reference_.Create_Id_(_0_orderId))
+		}
+	}
+	{
+		if _source0.Is_UpdateCart() {
+			var _2_delta _dafny.Map = _source0.Get_().(CommandPlan_UpdateCart).Reservations
+			_ = _2_delta
+			return Companion_Dependencies_.Create_Dependencies_(_dafny.SetOf(), (_2_delta).Keys(), Companion_Reference_.Create_Absent_(), Companion_Reference_.Create_Absent_())
+		}
+	}
+	{
+		if _source0.Is_UpdateOrder() {
+			var _3_target _dafny.Int = _source0.Get_().(CommandPlan_UpdateOrder).Target
+			_ = _3_target
+			var _4_customer _dafny.Sequence = _source0.Get_().(CommandPlan_UpdateOrder).OrderCustomer
+			_ = _4_customer
+			var _5_stock StockChanges = _source0.Get_().(CommandPlan_UpdateOrder).Stock
+			_ = _5_stock
+			var _6_ids _dafny.Set = func() _dafny.Set {
+				var _source1 StockChanges = _5_stock
+				_ = _source1
+				{
+					if _source1.Is_Reserve() {
+						var _7_delta _dafny.Map = _source1.Get_().(StockChanges_Reserve).Deltas
+						_ = _7_delta
+						return (_7_delta).Keys()
+					}
+				}
+				{
+					var _8_quantities _dafny.Map = _source1.Get_().(StockChanges_Ship).Quantities
+					_ = _8_quantities
+					return (_8_quantities).Keys()
+				}
+			}()
+			_ = _6_ids
+			return Companion_Dependencies_.Create_Dependencies_(_dafny.SetOf(), _6_ids, (func() Reference {
+				if (_3_target).Cmp(Companion_Default___.Delivered()) == 0 {
+					return Companion_Reference_.Create_Id_(_4_customer)
+				}
+				return Companion_Reference_.Create_Absent_()
+			})(), Companion_Reference_.Create_Absent_())
+		}
+	}
+	{
+		return Companion_Dependencies_.Create_Dependencies_(_dafny.SetOf(), _dafny.SetOf(), Companion_Reference_.Create_Absent_(), Companion_Reference_.Create_Absent_())
+	}
+}
+func (_static *CompanionStruct_Default___) DecideAndApply(e Effects) Status {
+	var status Status = Companion_Status_.Default()
+	_ = status
+	var _0_input CommandInput = Companion_CommandInput_.Default()
+	_ = _0_input
+	var _out0 Status
+	_ = _out0
+	var _out1 CommandInput
+	_ = _out1
+	_out0, _out1 = (e).ReadInput()
+	status = _out0
+	_0_input = _out1
+	if !((status).Is_Ok()) {
+		return status
+	}
+	var _1_request ReadRequest
+	_ = _1_request
+	_1_request = Companion_Default___.RequestState(_0_input)
+	if (_1_request).Is_RejectRead() {
+		(e).SetRejection((_1_request).Dtor_reason())
+		status = Companion_Status_.Create_Rejected_()
+		return status
+	}
+	var _2_snapshot Snapshot = Companion_Snapshot_.Default()
+	_ = _2_snapshot
+	var _out2 Status
+	_ = _out2
+	var _out3 Snapshot
+	_ = _out3
+	_out2, _out3 = (e).Read(_1_request)
+	status = _out2
+	_2_snapshot = _out3
+	if !((status).Is_Ok()) {
+		return status
+	}
+	if Companion_Default___.NeedsCoupon(_0_input, _2_snapshot) {
+		var _3_coupon Coupon = Companion_Coupon_.Default()
+		_ = _3_coupon
+		var _out4 Status
+		_ = _out4
+		var _out5 Coupon
+		_ = _out5
+		_out4, _out5 = (e).ReadCoupon((_0_input).Dtor_couponCode())
+		status = _out4
+		_3_coupon = _out5
+		if !((status).Is_Ok()) {
+			return status
+		}
+		var _pat_let_tv0 = _3_coupon
+		_ = _pat_let_tv0
+		_2_snapshot = Companion_Snapshot_.Create_Cart_(func(_pat_let0_0 CartState) CartState {
+			return func(_4_dt__update__tmp_h0 CartState) CartState {
+				return func(_pat_let1_0 Coupon) CartState {
+					return func(_5_dt__update_hcoupon_h0 Coupon) CartState {
+						return Companion_CartState_.Create_CartState_((_4_dt__update__tmp_h0).Dtor_customerId(), (_4_dt__update__tmp_h0).Dtor_version(), (_4_dt__update__tmp_h0).Dtor_items(), (_4_dt__update__tmp_h0).Dtor_expires(), (_4_dt__update__tmp_h0).Dtor_requestedDay(), (_4_dt__update__tmp_h0).Dtor_today(), _5_dt__update_hcoupon_h0)
+					}(_pat_let1_0)
+				}(_pat_let_tv0)
+			}(_pat_let0_0)
+		}((_2_snapshot).Dtor_state()))
+	}
+	var _6_plan CommandPlan
+	_ = _6_plan
+	_6_plan = Companion_Default___.DecideCommand(_0_input, _2_snapshot)
+	if (_6_plan).Is_Reject() {
+		(e).SetRejection((_6_plan).Dtor_reason())
+		status = Companion_Status_.Create_Rejected_()
+		return status
+	}
+	var _7_dependencies Dependencies
+	_ = _7_dependencies
+	_7_dependencies = Companion_Default___.DependenciesFor(_6_plan)
+	if !(_7_dependencies).Equals(Companion_Dependencies_.Create_Dependencies_(_dafny.SetOf(), _dafny.SetOf(), Companion_Reference_.Create_Absent_(), Companion_Reference_.Create_Absent_())) {
+		var _out6 Status
+		_ = _out6
+		_out6 = (e).ReadDependencies(_7_dependencies)
+		status = _out6
+		if !((status).Is_Ok()) {
+			return status
+		}
+	}
+	var _out7 Status
+	_ = _out7
+	_out7 = (e).Apply(_6_plan)
+	status = _out7
+	return status
+}
+func (_static *CompanionStruct_Default___) ExecuteAttempt(e Effects) Status {
+	var status Status = Companion_Status_.Default()
+	_ = status
+	var _out0 Status
+	_ = _out0
+	_out0 = (e).Begin()
+	status = _out0
+	if !((status).Is_Ok()) {
+		return status
+	}
+	var _0_state _dafny.Sequence = _dafny.EmptySeq
+	_ = _0_state
+	var _out1 Status
+	_ = _out1
+	var _out2 _dafny.Sequence
+	_ = _out2
+	_out1, _out2 = (e).LockCommand()
+	status = _out1
+	_0_state = _out2
+	if (status).Is_Ok() {
+		if _dafny.Companion_Sequence_.Equal(_0_state, _dafny.UnicodeSeqOfUtf8Bytes("queued")) {
+			status = Companion_Status_.Create_Ok_()
+		} else {
+			status = Companion_Status_.Create_Skipped_()
+		}
+		if (status).Is_Ok() {
+			var _out3 Status
+			_ = _out3
+			_out3 = Companion_Default___.DecideAndApply(e)
+			status = _out3
+		}
+		if (status).Is_Ok() {
+			var _out4 Status
+			_ = _out4
+			_out4 = (e).RecordSuccess()
+			status = _out4
+		} else if (status).Is_Rejected() {
+			var _out5 Status
+			_ = _out5
+			_out5 = (e).RecordRejection()
+			status = _out5
+		}
+		if (status).Is_Ok() {
+			var _out6 Status
+			_ = _out6
+			_out6 = (e).Commit()
+			status = _out6
+			return status
+		}
+	}
+	(e).Rollback()
+	return status
+}
+func (_static *CompanionStruct_Default___) ExecuteCommand(e Effects) Status {
+	var status Status = Companion_Status_.Default()
+	_ = status
+	var _hi0 _dafny.Int = _dafny.IntOfInt64(5)
+	_ = _hi0
+	for _0_attempt := _dafny.Zero; _0_attempt.Cmp(_hi0) < 0; _0_attempt = _0_attempt.Plus(_dafny.One) {
+		var _out0 Status
+		_ = _out0
+		_out0 = Companion_Default___.ExecuteAttempt(e)
+		status = _out0
+		if !((status).Is_Conflict()) {
+			if (status).Is_Failed() {
+				(e).RecordFailure(_dafny.IntOfInt64(8))
+			}
+			return status
+		}
+	}
+	status = Companion_Status_.Create_Conflict_()
+	return status
 }
 func (_static *CompanionStruct_Default___) Delivered() _dafny.Int {
 	return _dafny.IntOfInt64(7)
@@ -460,12 +717,15 @@ type CommandInput_CommandInput struct {
 	Tracking           _dafny.Sequence
 	Boxes              _dafny.Int
 	Weight             _dafny.Int
+	OrderId            _dafny.Sequence
+	CouponCode         _dafny.Sequence
+	CommandId          _dafny.Sequence
 }
 
 func (CommandInput_CommandInput) isCommandInput() {}
 
-func (CompanionStruct_CommandInput_) Create_CommandInput_(Kind _dafny.Sequence, Role _dafny.Sequence, Actor _dafny.Sequence, Customer _dafny.Sequence, NoteBytes _dafny.Int, TrackingBytes _dafny.Int, RequestedDateBytes _dafny.Int, ExpectedVersion _dafny.Int, Product _dafny.Sequence, ProductValid bool, StockDelta _dafny.Int, Quantity _dafny.Int, Now _dafny.Int, ExpireAt _dafny.Int, PaymentSucceeded bool, Tracking _dafny.Sequence, Boxes _dafny.Int, Weight _dafny.Int) CommandInput {
-	return CommandInput{CommandInput_CommandInput{Kind, Role, Actor, Customer, NoteBytes, TrackingBytes, RequestedDateBytes, ExpectedVersion, Product, ProductValid, StockDelta, Quantity, Now, ExpireAt, PaymentSucceeded, Tracking, Boxes, Weight}}
+func (CompanionStruct_CommandInput_) Create_CommandInput_(Kind _dafny.Sequence, Role _dafny.Sequence, Actor _dafny.Sequence, Customer _dafny.Sequence, NoteBytes _dafny.Int, TrackingBytes _dafny.Int, RequestedDateBytes _dafny.Int, ExpectedVersion _dafny.Int, Product _dafny.Sequence, ProductValid bool, StockDelta _dafny.Int, Quantity _dafny.Int, Now _dafny.Int, ExpireAt _dafny.Int, PaymentSucceeded bool, Tracking _dafny.Sequence, Boxes _dafny.Int, Weight _dafny.Int, OrderId _dafny.Sequence, CouponCode _dafny.Sequence, CommandId _dafny.Sequence) CommandInput {
+	return CommandInput{CommandInput_CommandInput{Kind, Role, Actor, Customer, NoteBytes, TrackingBytes, RequestedDateBytes, ExpectedVersion, Product, ProductValid, StockDelta, Quantity, Now, ExpireAt, PaymentSucceeded, Tracking, Boxes, Weight, OrderId, CouponCode, CommandId}}
 }
 
 func (_this CommandInput) Is_CommandInput() bool {
@@ -474,7 +734,7 @@ func (_this CommandInput) Is_CommandInput() bool {
 }
 
 func (CompanionStruct_CommandInput_) Default() CommandInput {
-	return Companion_CommandInput_.Create_CommandInput_(_dafny.EmptySeq, _dafny.EmptySeq, _dafny.EmptySeq, _dafny.EmptySeq, _dafny.Zero, _dafny.Zero, _dafny.Zero, _dafny.Zero, _dafny.EmptySeq, false, _dafny.Zero, _dafny.Zero, _dafny.Zero, _dafny.Zero, false, _dafny.EmptySeq, _dafny.Zero, _dafny.Zero)
+	return Companion_CommandInput_.Create_CommandInput_(_dafny.EmptySeq, _dafny.EmptySeq, _dafny.EmptySeq, _dafny.EmptySeq, _dafny.Zero, _dafny.Zero, _dafny.Zero, _dafny.Zero, _dafny.EmptySeq, false, _dafny.Zero, _dafny.Zero, _dafny.Zero, _dafny.Zero, false, _dafny.EmptySeq, _dafny.Zero, _dafny.Zero, _dafny.EmptySeq, _dafny.EmptySeq, _dafny.EmptySeq)
 }
 
 func (_this CommandInput) Dtor_kind() _dafny.Sequence {
@@ -549,13 +809,25 @@ func (_this CommandInput) Dtor_weight() _dafny.Int {
 	return _this.Get_().(CommandInput_CommandInput).Weight
 }
 
+func (_this CommandInput) Dtor_orderId() _dafny.Sequence {
+	return _this.Get_().(CommandInput_CommandInput).OrderId
+}
+
+func (_this CommandInput) Dtor_couponCode() _dafny.Sequence {
+	return _this.Get_().(CommandInput_CommandInput).CouponCode
+}
+
+func (_this CommandInput) Dtor_commandId() _dafny.Sequence {
+	return _this.Get_().(CommandInput_CommandInput).CommandId
+}
+
 func (_this CommandInput) String() string {
 	switch data := _this.Get_().(type) {
 	case nil:
 		return "null"
 	case CommandInput_CommandInput:
 		{
-			return "CommandFlow.CommandInput.CommandInput" + "(" + data.Kind.VerbatimString(true) + ", " + data.Role.VerbatimString(true) + ", " + data.Actor.VerbatimString(true) + ", " + data.Customer.VerbatimString(true) + ", " + _dafny.String(data.NoteBytes) + ", " + _dafny.String(data.TrackingBytes) + ", " + _dafny.String(data.RequestedDateBytes) + ", " + _dafny.String(data.ExpectedVersion) + ", " + data.Product.VerbatimString(true) + ", " + _dafny.String(data.ProductValid) + ", " + _dafny.String(data.StockDelta) + ", " + _dafny.String(data.Quantity) + ", " + _dafny.String(data.Now) + ", " + _dafny.String(data.ExpireAt) + ", " + _dafny.String(data.PaymentSucceeded) + ", " + data.Tracking.VerbatimString(true) + ", " + _dafny.String(data.Boxes) + ", " + _dafny.String(data.Weight) + ")"
+			return "CommandFlow.CommandInput.CommandInput" + "(" + data.Kind.VerbatimString(true) + ", " + data.Role.VerbatimString(true) + ", " + data.Actor.VerbatimString(true) + ", " + data.Customer.VerbatimString(true) + ", " + _dafny.String(data.NoteBytes) + ", " + _dafny.String(data.TrackingBytes) + ", " + _dafny.String(data.RequestedDateBytes) + ", " + _dafny.String(data.ExpectedVersion) + ", " + data.Product.VerbatimString(true) + ", " + _dafny.String(data.ProductValid) + ", " + _dafny.String(data.StockDelta) + ", " + _dafny.String(data.Quantity) + ", " + _dafny.String(data.Now) + ", " + _dafny.String(data.ExpireAt) + ", " + _dafny.String(data.PaymentSucceeded) + ", " + data.Tracking.VerbatimString(true) + ", " + _dafny.String(data.Boxes) + ", " + _dafny.String(data.Weight) + ", " + data.OrderId.VerbatimString(true) + ", " + data.CouponCode.VerbatimString(true) + ", " + data.CommandId.VerbatimString(true) + ")"
 		}
 	default:
 		{
@@ -569,7 +841,7 @@ func (_this CommandInput) Equals(other CommandInput) bool {
 	case CommandInput_CommandInput:
 		{
 			data2, ok := other.Get_().(CommandInput_CommandInput)
-			return ok && data1.Kind.Equals(data2.Kind) && data1.Role.Equals(data2.Role) && data1.Actor.Equals(data2.Actor) && data1.Customer.Equals(data2.Customer) && data1.NoteBytes.Cmp(data2.NoteBytes) == 0 && data1.TrackingBytes.Cmp(data2.TrackingBytes) == 0 && data1.RequestedDateBytes.Cmp(data2.RequestedDateBytes) == 0 && data1.ExpectedVersion.Cmp(data2.ExpectedVersion) == 0 && data1.Product.Equals(data2.Product) && data1.ProductValid == data2.ProductValid && data1.StockDelta.Cmp(data2.StockDelta) == 0 && data1.Quantity.Cmp(data2.Quantity) == 0 && data1.Now.Cmp(data2.Now) == 0 && data1.ExpireAt.Cmp(data2.ExpireAt) == 0 && data1.PaymentSucceeded == data2.PaymentSucceeded && data1.Tracking.Equals(data2.Tracking) && data1.Boxes.Cmp(data2.Boxes) == 0 && data1.Weight.Cmp(data2.Weight) == 0
+			return ok && data1.Kind.Equals(data2.Kind) && data1.Role.Equals(data2.Role) && data1.Actor.Equals(data2.Actor) && data1.Customer.Equals(data2.Customer) && data1.NoteBytes.Cmp(data2.NoteBytes) == 0 && data1.TrackingBytes.Cmp(data2.TrackingBytes) == 0 && data1.RequestedDateBytes.Cmp(data2.RequestedDateBytes) == 0 && data1.ExpectedVersion.Cmp(data2.ExpectedVersion) == 0 && data1.Product.Equals(data2.Product) && data1.ProductValid == data2.ProductValid && data1.StockDelta.Cmp(data2.StockDelta) == 0 && data1.Quantity.Cmp(data2.Quantity) == 0 && data1.Now.Cmp(data2.Now) == 0 && data1.ExpireAt.Cmp(data2.ExpireAt) == 0 && data1.PaymentSucceeded == data2.PaymentSucceeded && data1.Tracking.Equals(data2.Tracking) && data1.Boxes.Cmp(data2.Boxes) == 0 && data1.Weight.Cmp(data2.Weight) == 0 && data1.OrderId.Equals(data2.OrderId) && data1.CouponCode.Equals(data2.CouponCode) && data1.CommandId.Equals(data2.CommandId)
 		}
 	default:
 		{
@@ -1288,6 +1560,187 @@ var _ _dafny.TraitOffspring = CartState{}
 
 // End of datatype CartState
 
+// Definition of datatype ReadRequest
+type ReadRequest struct {
+	Data_ReadRequest_
+}
+
+func (_this ReadRequest) Get_() Data_ReadRequest_ {
+	return _this.Data_ReadRequest_
+}
+
+type Data_ReadRequest_ interface {
+	isReadRequest()
+}
+
+type CompanionStruct_ReadRequest_ struct {
+}
+
+var Companion_ReadRequest_ = CompanionStruct_ReadRequest_{}
+
+type ReadRequest_RejectRead struct {
+	Reason _dafny.Sequence
+}
+
+func (ReadRequest_RejectRead) isReadRequest() {}
+
+func (CompanionStruct_ReadRequest_) Create_RejectRead_(Reason _dafny.Sequence) ReadRequest {
+	return ReadRequest{ReadRequest_RejectRead{Reason}}
+}
+
+func (_this ReadRequest) Is_RejectRead() bool {
+	_, ok := _this.Get_().(ReadRequest_RejectRead)
+	return ok
+}
+
+type ReadRequest_ReadCart struct {
+	CustomerId _dafny.Sequence
+}
+
+func (ReadRequest_ReadCart) isReadRequest() {}
+
+func (CompanionStruct_ReadRequest_) Create_ReadCart_(CustomerId _dafny.Sequence) ReadRequest {
+	return ReadRequest{ReadRequest_ReadCart{CustomerId}}
+}
+
+func (_this ReadRequest) Is_ReadCart() bool {
+	_, ok := _this.Get_().(ReadRequest_ReadCart)
+	return ok
+}
+
+type ReadRequest_ReadStock struct {
+	ProductId _dafny.Sequence
+}
+
+func (ReadRequest_ReadStock) isReadRequest() {}
+
+func (CompanionStruct_ReadRequest_) Create_ReadStock_(ProductId _dafny.Sequence) ReadRequest {
+	return ReadRequest{ReadRequest_ReadStock{ProductId}}
+}
+
+func (_this ReadRequest) Is_ReadStock() bool {
+	_, ok := _this.Get_().(ReadRequest_ReadStock)
+	return ok
+}
+
+type ReadRequest_ReadOrder struct {
+	OrderId _dafny.Sequence
+}
+
+func (ReadRequest_ReadOrder) isReadRequest() {}
+
+func (CompanionStruct_ReadRequest_) Create_ReadOrder_(OrderId _dafny.Sequence) ReadRequest {
+	return ReadRequest{ReadRequest_ReadOrder{OrderId}}
+}
+
+func (_this ReadRequest) Is_ReadOrder() bool {
+	_, ok := _this.Get_().(ReadRequest_ReadOrder)
+	return ok
+}
+
+func (CompanionStruct_ReadRequest_) Default() ReadRequest {
+	return Companion_ReadRequest_.Create_RejectRead_(_dafny.EmptySeq)
+}
+
+func (_this ReadRequest) Dtor_reason() _dafny.Sequence {
+	return _this.Get_().(ReadRequest_RejectRead).Reason
+}
+
+func (_this ReadRequest) Dtor_customerId() _dafny.Sequence {
+	return _this.Get_().(ReadRequest_ReadCart).CustomerId
+}
+
+func (_this ReadRequest) Dtor_productId() _dafny.Sequence {
+	return _this.Get_().(ReadRequest_ReadStock).ProductId
+}
+
+func (_this ReadRequest) Dtor_orderId() _dafny.Sequence {
+	return _this.Get_().(ReadRequest_ReadOrder).OrderId
+}
+
+func (_this ReadRequest) String() string {
+	switch data := _this.Get_().(type) {
+	case nil:
+		return "null"
+	case ReadRequest_RejectRead:
+		{
+			return "CommandFlow.ReadRequest.RejectRead" + "(" + data.Reason.VerbatimString(true) + ")"
+		}
+	case ReadRequest_ReadCart:
+		{
+			return "CommandFlow.ReadRequest.ReadCart" + "(" + data.CustomerId.VerbatimString(true) + ")"
+		}
+	case ReadRequest_ReadStock:
+		{
+			return "CommandFlow.ReadRequest.ReadStock" + "(" + data.ProductId.VerbatimString(true) + ")"
+		}
+	case ReadRequest_ReadOrder:
+		{
+			return "CommandFlow.ReadRequest.ReadOrder" + "(" + data.OrderId.VerbatimString(true) + ")"
+		}
+	default:
+		{
+			return "<unexpected>"
+		}
+	}
+}
+
+func (_this ReadRequest) Equals(other ReadRequest) bool {
+	switch data1 := _this.Get_().(type) {
+	case ReadRequest_RejectRead:
+		{
+			data2, ok := other.Get_().(ReadRequest_RejectRead)
+			return ok && data1.Reason.Equals(data2.Reason)
+		}
+	case ReadRequest_ReadCart:
+		{
+			data2, ok := other.Get_().(ReadRequest_ReadCart)
+			return ok && data1.CustomerId.Equals(data2.CustomerId)
+		}
+	case ReadRequest_ReadStock:
+		{
+			data2, ok := other.Get_().(ReadRequest_ReadStock)
+			return ok && data1.ProductId.Equals(data2.ProductId)
+		}
+	case ReadRequest_ReadOrder:
+		{
+			data2, ok := other.Get_().(ReadRequest_ReadOrder)
+			return ok && data1.OrderId.Equals(data2.OrderId)
+		}
+	default:
+		{
+			return false // unexpected
+		}
+	}
+}
+
+func (_this ReadRequest) EqualsGeneric(other interface{}) bool {
+	typed, ok := other.(ReadRequest)
+	return ok && _this.Equals(typed)
+}
+
+func Type_ReadRequest_() _dafny.TypeDescriptor {
+	return type_ReadRequest_{}
+}
+
+type type_ReadRequest_ struct {
+}
+
+func (_this type_ReadRequest_) Default() interface{} {
+	return Companion_ReadRequest_.Default()
+}
+
+func (_this type_ReadRequest_) String() string {
+	return "CommandFlow.ReadRequest"
+}
+func (_this ReadRequest) ParentTraits_() []*_dafny.TraitID {
+	return [](*_dafny.TraitID){}
+}
+
+var _ _dafny.TraitOffspring = ReadRequest{}
+
+// End of datatype ReadRequest
+
 // Definition of datatype Snapshot
 type Snapshot struct {
 	Data_Snapshot_
@@ -1978,6 +2431,7 @@ func (_this CommandPlan) Is_UpdateCart() bool {
 
 type CommandPlan_Checkout struct {
 	CheckoutCustomer _dafny.Sequence
+	NewOrderId       _dafny.Sequence
 	OrderLines       _dafny.Map
 	RemainingItems   _dafny.Map
 	CartExpiry       _dafny.Int
@@ -1986,8 +2440,8 @@ type CommandPlan_Checkout struct {
 
 func (CommandPlan_Checkout) isCommandPlan() {}
 
-func (CompanionStruct_CommandPlan_) Create_Checkout_(CheckoutCustomer _dafny.Sequence, OrderLines _dafny.Map, RemainingItems _dafny.Map, CartExpiry _dafny.Int, Discount _dafny.Int) CommandPlan {
-	return CommandPlan{CommandPlan_Checkout{CheckoutCustomer, OrderLines, RemainingItems, CartExpiry, Discount}}
+func (CompanionStruct_CommandPlan_) Create_Checkout_(CheckoutCustomer _dafny.Sequence, NewOrderId _dafny.Sequence, OrderLines _dafny.Map, RemainingItems _dafny.Map, CartExpiry _dafny.Int, Discount _dafny.Int) CommandPlan {
+	return CommandPlan{CommandPlan_Checkout{CheckoutCustomer, NewOrderId, OrderLines, RemainingItems, CartExpiry, Discount}}
 }
 
 func (_this CommandPlan) Is_Checkout() bool {
@@ -2012,16 +2466,17 @@ func (_this CommandPlan) Is_Adjust() bool {
 }
 
 type CommandPlan_UpdateOrder struct {
-	Target      _dafny.Int
-	Prepare     OrderPreparation
-	Stock       StockChanges
-	Obligations _dafny.Set
+	Target        _dafny.Int
+	OrderCustomer _dafny.Sequence
+	Prepare       OrderPreparation
+	Stock         StockChanges
+	Obligations   _dafny.Set
 }
 
 func (CommandPlan_UpdateOrder) isCommandPlan() {}
 
-func (CompanionStruct_CommandPlan_) Create_UpdateOrder_(Target _dafny.Int, Prepare OrderPreparation, Stock StockChanges, Obligations _dafny.Set) CommandPlan {
-	return CommandPlan{CommandPlan_UpdateOrder{Target, Prepare, Stock, Obligations}}
+func (CompanionStruct_CommandPlan_) Create_UpdateOrder_(Target _dafny.Int, OrderCustomer _dafny.Sequence, Prepare OrderPreparation, Stock StockChanges, Obligations _dafny.Set) CommandPlan {
+	return CommandPlan{CommandPlan_UpdateOrder{Target, OrderCustomer, Prepare, Stock, Obligations}}
 }
 
 func (_this CommandPlan) Is_UpdateOrder() bool {
@@ -2061,6 +2516,10 @@ func (_this CommandPlan) Dtor_checkoutCustomer() _dafny.Sequence {
 	return _this.Get_().(CommandPlan_Checkout).CheckoutCustomer
 }
 
+func (_this CommandPlan) Dtor_newOrderId() _dafny.Sequence {
+	return _this.Get_().(CommandPlan_Checkout).NewOrderId
+}
+
 func (_this CommandPlan) Dtor_orderLines() _dafny.Map {
 	return _this.Get_().(CommandPlan_Checkout).OrderLines
 }
@@ -2087,6 +2546,10 @@ func (_this CommandPlan) Dtor_delta() _dafny.Int {
 
 func (_this CommandPlan) Dtor_target() _dafny.Int {
 	return _this.Get_().(CommandPlan_UpdateOrder).Target
+}
+
+func (_this CommandPlan) Dtor_orderCustomer() _dafny.Sequence {
+	return _this.Get_().(CommandPlan_UpdateOrder).OrderCustomer
 }
 
 func (_this CommandPlan) Dtor_prepare() OrderPreparation {
@@ -2119,7 +2582,7 @@ func (_this CommandPlan) String() string {
 		}
 	case CommandPlan_Checkout:
 		{
-			return "CommandFlow.CommandPlan.Checkout" + "(" + data.CheckoutCustomer.VerbatimString(true) + ", " + _dafny.String(data.OrderLines) + ", " + _dafny.String(data.RemainingItems) + ", " + _dafny.String(data.CartExpiry) + ", " + _dafny.String(data.Discount) + ")"
+			return "CommandFlow.CommandPlan.Checkout" + "(" + data.CheckoutCustomer.VerbatimString(true) + ", " + data.NewOrderId.VerbatimString(true) + ", " + _dafny.String(data.OrderLines) + ", " + _dafny.String(data.RemainingItems) + ", " + _dafny.String(data.CartExpiry) + ", " + _dafny.String(data.Discount) + ")"
 		}
 	case CommandPlan_Adjust:
 		{
@@ -2127,7 +2590,7 @@ func (_this CommandPlan) String() string {
 		}
 	case CommandPlan_UpdateOrder:
 		{
-			return "CommandFlow.CommandPlan.UpdateOrder" + "(" + _dafny.String(data.Target) + ", " + _dafny.String(data.Prepare) + ", " + _dafny.String(data.Stock) + ", " + _dafny.String(data.Obligations) + ")"
+			return "CommandFlow.CommandPlan.UpdateOrder" + "(" + _dafny.String(data.Target) + ", " + data.OrderCustomer.VerbatimString(true) + ", " + _dafny.String(data.Prepare) + ", " + _dafny.String(data.Stock) + ", " + _dafny.String(data.Obligations) + ")"
 		}
 	default:
 		{
@@ -2156,7 +2619,7 @@ func (_this CommandPlan) Equals(other CommandPlan) bool {
 	case CommandPlan_Checkout:
 		{
 			data2, ok := other.Get_().(CommandPlan_Checkout)
-			return ok && data1.CheckoutCustomer.Equals(data2.CheckoutCustomer) && data1.OrderLines.Equals(data2.OrderLines) && data1.RemainingItems.Equals(data2.RemainingItems) && data1.CartExpiry.Cmp(data2.CartExpiry) == 0 && data1.Discount.Cmp(data2.Discount) == 0
+			return ok && data1.CheckoutCustomer.Equals(data2.CheckoutCustomer) && data1.NewOrderId.Equals(data2.NewOrderId) && data1.OrderLines.Equals(data2.OrderLines) && data1.RemainingItems.Equals(data2.RemainingItems) && data1.CartExpiry.Cmp(data2.CartExpiry) == 0 && data1.Discount.Cmp(data2.Discount) == 0
 		}
 	case CommandPlan_Adjust:
 		{
@@ -2166,7 +2629,7 @@ func (_this CommandPlan) Equals(other CommandPlan) bool {
 	case CommandPlan_UpdateOrder:
 		{
 			data2, ok := other.Get_().(CommandPlan_UpdateOrder)
-			return ok && data1.Target.Cmp(data2.Target) == 0 && data1.Prepare.Equals(data2.Prepare) && data1.Stock.Equals(data2.Stock) && data1.Obligations.Equals(data2.Obligations)
+			return ok && data1.Target.Cmp(data2.Target) == 0 && data1.OrderCustomer.Equals(data2.OrderCustomer) && data1.Prepare.Equals(data2.Prepare) && data1.Stock.Equals(data2.Stock) && data1.Obligations.Equals(data2.Obligations)
 		}
 	default:
 		{
@@ -2201,3 +2664,473 @@ func (_this CommandPlan) ParentTraits_() []*_dafny.TraitID {
 var _ _dafny.TraitOffspring = CommandPlan{}
 
 // End of datatype CommandPlan
+
+// Definition of datatype Reference
+type Reference struct {
+	Data_Reference_
+}
+
+func (_this Reference) Get_() Data_Reference_ {
+	return _this.Data_Reference_
+}
+
+type Data_Reference_ interface {
+	isReference()
+}
+
+type CompanionStruct_Reference_ struct {
+}
+
+var Companion_Reference_ = CompanionStruct_Reference_{}
+
+type Reference_Absent struct {
+}
+
+func (Reference_Absent) isReference() {}
+
+func (CompanionStruct_Reference_) Create_Absent_() Reference {
+	return Reference{Reference_Absent{}}
+}
+
+func (_this Reference) Is_Absent() bool {
+	_, ok := _this.Get_().(Reference_Absent)
+	return ok
+}
+
+type Reference_Id struct {
+	Value _dafny.Sequence
+}
+
+func (Reference_Id) isReference() {}
+
+func (CompanionStruct_Reference_) Create_Id_(Value _dafny.Sequence) Reference {
+	return Reference{Reference_Id{Value}}
+}
+
+func (_this Reference) Is_Id() bool {
+	_, ok := _this.Get_().(Reference_Id)
+	return ok
+}
+
+func (CompanionStruct_Reference_) Default() Reference {
+	return Companion_Reference_.Create_Absent_()
+}
+
+func (_this Reference) Dtor_value() _dafny.Sequence {
+	return _this.Get_().(Reference_Id).Value
+}
+
+func (_this Reference) String() string {
+	switch data := _this.Get_().(type) {
+	case nil:
+		return "null"
+	case Reference_Absent:
+		{
+			return "CommandFlow.Reference.Absent"
+		}
+	case Reference_Id:
+		{
+			return "CommandFlow.Reference.Id" + "(" + data.Value.VerbatimString(true) + ")"
+		}
+	default:
+		{
+			return "<unexpected>"
+		}
+	}
+}
+
+func (_this Reference) Equals(other Reference) bool {
+	switch data1 := _this.Get_().(type) {
+	case Reference_Absent:
+		{
+			_, ok := other.Get_().(Reference_Absent)
+			return ok
+		}
+	case Reference_Id:
+		{
+			data2, ok := other.Get_().(Reference_Id)
+			return ok && data1.Value.Equals(data2.Value)
+		}
+	default:
+		{
+			return false // unexpected
+		}
+	}
+}
+
+func (_this Reference) EqualsGeneric(other interface{}) bool {
+	typed, ok := other.(Reference)
+	return ok && _this.Equals(typed)
+}
+
+func Type_Reference_() _dafny.TypeDescriptor {
+	return type_Reference_{}
+}
+
+type type_Reference_ struct {
+}
+
+func (_this type_Reference_) Default() interface{} {
+	return Companion_Reference_.Default()
+}
+
+func (_this type_Reference_) String() string {
+	return "CommandFlow.Reference"
+}
+func (_this Reference) ParentTraits_() []*_dafny.TraitID {
+	return [](*_dafny.TraitID){}
+}
+
+var _ _dafny.TraitOffspring = Reference{}
+
+// End of datatype Reference
+
+// Definition of datatype Dependencies
+type Dependencies struct {
+	Data_Dependencies_
+}
+
+func (_this Dependencies) Get_() Data_Dependencies_ {
+	return _this.Data_Dependencies_
+}
+
+type Data_Dependencies_ interface {
+	isDependencies()
+}
+
+type CompanionStruct_Dependencies_ struct {
+}
+
+var Companion_Dependencies_ = CompanionStruct_Dependencies_{}
+
+type Dependencies_Dependencies struct {
+	Products _dafny.Set
+	Stocks   _dafny.Set
+	Loyalty  Reference
+	NewOrder Reference
+}
+
+func (Dependencies_Dependencies) isDependencies() {}
+
+func (CompanionStruct_Dependencies_) Create_Dependencies_(Products _dafny.Set, Stocks _dafny.Set, Loyalty Reference, NewOrder Reference) Dependencies {
+	return Dependencies{Dependencies_Dependencies{Products, Stocks, Loyalty, NewOrder}}
+}
+
+func (_this Dependencies) Is_Dependencies() bool {
+	_, ok := _this.Get_().(Dependencies_Dependencies)
+	return ok
+}
+
+func (CompanionStruct_Dependencies_) Default() Dependencies {
+	return Companion_Dependencies_.Create_Dependencies_(_dafny.EmptySet, _dafny.EmptySet, Companion_Reference_.Default(), Companion_Reference_.Default())
+}
+
+func (_this Dependencies) Dtor_products() _dafny.Set {
+	return _this.Get_().(Dependencies_Dependencies).Products
+}
+
+func (_this Dependencies) Dtor_stocks() _dafny.Set {
+	return _this.Get_().(Dependencies_Dependencies).Stocks
+}
+
+func (_this Dependencies) Dtor_loyalty() Reference {
+	return _this.Get_().(Dependencies_Dependencies).Loyalty
+}
+
+func (_this Dependencies) Dtor_newOrder() Reference {
+	return _this.Get_().(Dependencies_Dependencies).NewOrder
+}
+
+func (_this Dependencies) String() string {
+	switch data := _this.Get_().(type) {
+	case nil:
+		return "null"
+	case Dependencies_Dependencies:
+		{
+			return "CommandFlow.Dependencies.Dependencies" + "(" + _dafny.String(data.Products) + ", " + _dafny.String(data.Stocks) + ", " + _dafny.String(data.Loyalty) + ", " + _dafny.String(data.NewOrder) + ")"
+		}
+	default:
+		{
+			return "<unexpected>"
+		}
+	}
+}
+
+func (_this Dependencies) Equals(other Dependencies) bool {
+	switch data1 := _this.Get_().(type) {
+	case Dependencies_Dependencies:
+		{
+			data2, ok := other.Get_().(Dependencies_Dependencies)
+			return ok && data1.Products.Equals(data2.Products) && data1.Stocks.Equals(data2.Stocks) && data1.Loyalty.Equals(data2.Loyalty) && data1.NewOrder.Equals(data2.NewOrder)
+		}
+	default:
+		{
+			return false // unexpected
+		}
+	}
+}
+
+func (_this Dependencies) EqualsGeneric(other interface{}) bool {
+	typed, ok := other.(Dependencies)
+	return ok && _this.Equals(typed)
+}
+
+func Type_Dependencies_() _dafny.TypeDescriptor {
+	return type_Dependencies_{}
+}
+
+type type_Dependencies_ struct {
+}
+
+func (_this type_Dependencies_) Default() interface{} {
+	return Companion_Dependencies_.Default()
+}
+
+func (_this type_Dependencies_) String() string {
+	return "CommandFlow.Dependencies"
+}
+func (_this Dependencies) ParentTraits_() []*_dafny.TraitID {
+	return [](*_dafny.TraitID){}
+}
+
+var _ _dafny.TraitOffspring = Dependencies{}
+
+// End of datatype Dependencies
+
+// Definition of datatype Status
+type Status struct {
+	Data_Status_
+}
+
+func (_this Status) Get_() Data_Status_ {
+	return _this.Data_Status_
+}
+
+type Data_Status_ interface {
+	isStatus()
+}
+
+type CompanionStruct_Status_ struct {
+}
+
+var Companion_Status_ = CompanionStruct_Status_{}
+
+type Status_Ok struct {
+}
+
+func (Status_Ok) isStatus() {}
+
+func (CompanionStruct_Status_) Create_Ok_() Status {
+	return Status{Status_Ok{}}
+}
+
+func (_this Status) Is_Ok() bool {
+	_, ok := _this.Get_().(Status_Ok)
+	return ok
+}
+
+type Status_Failed struct {
+}
+
+func (Status_Failed) isStatus() {}
+
+func (CompanionStruct_Status_) Create_Failed_() Status {
+	return Status{Status_Failed{}}
+}
+
+func (_this Status) Is_Failed() bool {
+	_, ok := _this.Get_().(Status_Failed)
+	return ok
+}
+
+type Status_Conflict struct {
+}
+
+func (Status_Conflict) isStatus() {}
+
+func (CompanionStruct_Status_) Create_Conflict_() Status {
+	return Status{Status_Conflict{}}
+}
+
+func (_this Status) Is_Conflict() bool {
+	_, ok := _this.Get_().(Status_Conflict)
+	return ok
+}
+
+type Status_Rejected struct {
+}
+
+func (Status_Rejected) isStatus() {}
+
+func (CompanionStruct_Status_) Create_Rejected_() Status {
+	return Status{Status_Rejected{}}
+}
+
+func (_this Status) Is_Rejected() bool {
+	_, ok := _this.Get_().(Status_Rejected)
+	return ok
+}
+
+type Status_Skipped struct {
+}
+
+func (Status_Skipped) isStatus() {}
+
+func (CompanionStruct_Status_) Create_Skipped_() Status {
+	return Status{Status_Skipped{}}
+}
+
+func (_this Status) Is_Skipped() bool {
+	_, ok := _this.Get_().(Status_Skipped)
+	return ok
+}
+
+func (CompanionStruct_Status_) Default() Status {
+	return Companion_Status_.Create_Ok_()
+}
+
+func (_ CompanionStruct_Status_) AllSingletonConstructors() _dafny.Iterator {
+	i := -1
+	return func() (interface{}, bool) {
+		i++
+		switch i {
+		case 0:
+			return Companion_Status_.Create_Ok_(), true
+		case 1:
+			return Companion_Status_.Create_Failed_(), true
+		case 2:
+			return Companion_Status_.Create_Conflict_(), true
+		case 3:
+			return Companion_Status_.Create_Rejected_(), true
+		case 4:
+			return Companion_Status_.Create_Skipped_(), true
+		default:
+			return Status{}, false
+		}
+	}
+}
+
+func (_this Status) String() string {
+	switch _this.Get_().(type) {
+	case nil:
+		return "null"
+	case Status_Ok:
+		{
+			return "CommandFlow.Status.Ok"
+		}
+	case Status_Failed:
+		{
+			return "CommandFlow.Status.Failed"
+		}
+	case Status_Conflict:
+		{
+			return "CommandFlow.Status.Conflict"
+		}
+	case Status_Rejected:
+		{
+			return "CommandFlow.Status.Rejected"
+		}
+	case Status_Skipped:
+		{
+			return "CommandFlow.Status.Skipped"
+		}
+	default:
+		{
+			return "<unexpected>"
+		}
+	}
+}
+
+func (_this Status) Equals(other Status) bool {
+	switch _this.Get_().(type) {
+	case Status_Ok:
+		{
+			_, ok := other.Get_().(Status_Ok)
+			return ok
+		}
+	case Status_Failed:
+		{
+			_, ok := other.Get_().(Status_Failed)
+			return ok
+		}
+	case Status_Conflict:
+		{
+			_, ok := other.Get_().(Status_Conflict)
+			return ok
+		}
+	case Status_Rejected:
+		{
+			_, ok := other.Get_().(Status_Rejected)
+			return ok
+		}
+	case Status_Skipped:
+		{
+			_, ok := other.Get_().(Status_Skipped)
+			return ok
+		}
+	default:
+		{
+			return false // unexpected
+		}
+	}
+}
+
+func (_this Status) EqualsGeneric(other interface{}) bool {
+	typed, ok := other.(Status)
+	return ok && _this.Equals(typed)
+}
+
+func Type_Status_() _dafny.TypeDescriptor {
+	return type_Status_{}
+}
+
+type type_Status_ struct {
+}
+
+func (_this type_Status_) Default() interface{} {
+	return Companion_Status_.Default()
+}
+
+func (_this type_Status_) String() string {
+	return "CommandFlow.Status"
+}
+func (_this Status) ParentTraits_() []*_dafny.TraitID {
+	return [](*_dafny.TraitID){}
+}
+
+var _ _dafny.TraitOffspring = Status{}
+
+// End of datatype Status
+
+// Definition of trait Effects
+type Effects interface {
+	String() string
+	Begin() Status
+	LockCommand() (Status, _dafny.Sequence)
+	ReadInput() (Status, CommandInput)
+	Read(request ReadRequest) (Status, Snapshot)
+	ReadCoupon(code _dafny.Sequence) (Status, Coupon)
+	ReadDependencies(dependencies Dependencies) Status
+	Apply(plan CommandPlan) Status
+	RecordSuccess() Status
+	RecordRejection() Status
+	SetRejection(reason _dafny.Sequence)
+	Commit() Status
+	Rollback()
+	RecordFailure(maxAttempts _dafny.Int)
+}
+type CompanionStruct_Effects_ struct {
+	TraitID_ *_dafny.TraitID
+}
+
+var Companion_Effects_ = CompanionStruct_Effects_{
+	TraitID_: &_dafny.TraitID{},
+}
+
+func (CompanionStruct_Effects_) CastTo_(x interface{}) Effects {
+	var t Effects
+	t, _ = x.(Effects)
+	return t
+}
+
+// End of trait Effects

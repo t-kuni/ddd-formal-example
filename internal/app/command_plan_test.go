@@ -57,3 +57,103 @@ func TestCartPlanAndExpiryBoundary(t *testing.T) {
 		t.Fatalf("expired cart reset: %v", reset)
 	}
 }
+
+func TestExecuteCommandInjectsOnlyRequestedReads(t *testing.T) {
+	customer, product := store.ID("customer-a"), store.ID("P-1001")
+	for _, role := range []string{"customer", "operator"} {
+		t.Run(role, func(t *testing.T) {
+			a := commandAttempt{
+				actor: domain.Actor{ID: customer, Role: role},
+				command: Command{ID: store.ID("test-checkout"), Type: "order.checkout",
+					Payload: Payload{CustomerID: store.ID("customer-b"), Coupon: "WELCOME10"}},
+				now: time.Unix(100, 0),
+			}
+			e := &checkoutEffects{t: t, input: a.input(), customer: customer, product: product}
+			status := plan.Companion_Default___.ExecuteCommand(e)
+			if !status.Is_Ok() || !e.committed {
+				t.Fatalf("status=%v committed=%t", status, e.committed)
+			}
+			want := []string{"rejected"}
+			if role == "customer" {
+				want = []string{"cart", "coupon", "dependencies", "applied", "succeeded"}
+			}
+			if !reflect.DeepEqual(e.calls, want) {
+				t.Fatalf("calls = %v, want %v", e.calls, want)
+			}
+		})
+	}
+}
+
+type checkoutEffects struct {
+	plan.Effects
+	t                 *testing.T
+	input             plan.CommandInput
+	customer, product string
+	calls             []string
+	committed         bool
+}
+
+func (*checkoutEffects) Begin() plan.Status { return plan.Companion_Status_.Create_Ok_() }
+
+func (*checkoutEffects) LockCommand() (plan.Status, d.Sequence) {
+	return plan.Companion_Status_.Create_Ok_(), textValue("queued")
+}
+
+func (e *checkoutEffects) ReadInput() (plan.Status, plan.CommandInput) {
+	return plan.Companion_Status_.Create_Ok_(), e.input
+}
+
+func (e *checkoutEffects) Read(request plan.ReadRequest) (plan.Status, plan.Snapshot) {
+	e.calls = append(e.calls, "cart")
+	if !request.Is_ReadCart() || request.Dtor_customerId().VerbatimString(false) != e.customer {
+		e.t.Fatalf("read request = %v", request)
+	}
+	state := plan.Companion_CartState_.Create_CartState_(
+		textValue(e.customer), d.One, itemMap(map[string]int64{e.product: 2}), d.IntOf(1000),
+		plan.Companion_RequestedDay_.Create_Unspecified_(), d.Zero, plan.Companion_Coupon_.Create_NoCoupon_(),
+	)
+	return plan.Companion_Status_.Create_Ok_(), plan.Companion_Snapshot_.Create_Cart_(state)
+}
+
+func (e *checkoutEffects) ReadCoupon(code d.Sequence) (plan.Status, plan.Coupon) {
+	e.calls = append(e.calls, "coupon")
+	if code.VerbatimString(false) != "WELCOME10" {
+		e.t.Fatalf("coupon code = %v", code)
+	}
+	return plan.Companion_Status_.Create_Ok_(), plan.Companion_Coupon_.Create_CouponRate_(d.IntOf(10))
+}
+
+func (e *checkoutEffects) ReadDependencies(reads plan.Dependencies) plan.Status {
+	e.calls = append(e.calls, "dependencies")
+	products, order := reads.Dtor_products(), reads.Dtor_newOrder()
+	if products.CardinalityInt() != 1 || !products.Contains(textValue(e.product)) ||
+		!order.Is_Id() || order.Dtor_value().VerbatimString(false) != store.ID("test-checkout") {
+		e.t.Fatalf("dependencies = %v", reads)
+	}
+	return plan.Companion_Status_.Create_Ok_()
+}
+
+func (e *checkoutEffects) Apply(p plan.CommandPlan) plan.Status {
+	e.calls = append(e.calls, "applied")
+	if !p.Is_Checkout() || p.Dtor_discount().Int() != 10 {
+		e.t.Fatalf("plan = %v", p)
+	}
+	return plan.Companion_Status_.Create_Ok_()
+}
+
+func (*checkoutEffects) SetRejection(d.Sequence) {}
+
+func (e *checkoutEffects) RecordRejection() plan.Status {
+	e.calls = append(e.calls, "rejected")
+	return plan.Companion_Status_.Create_Ok_()
+}
+
+func (e *checkoutEffects) RecordSuccess() plan.Status {
+	e.calls = append(e.calls, "succeeded")
+	return plan.Companion_Status_.Create_Ok_()
+}
+
+func (e *checkoutEffects) Commit() plan.Status {
+	e.committed = true
+	return plan.Companion_Status_.Create_Ok_()
+}

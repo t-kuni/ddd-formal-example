@@ -138,7 +138,7 @@ docker compose up --build -d
 
 ## 形式検証・テスト
 
-[formal/Domain.dfy](formal/Domain.dfy) は、在庫・カート、受注履歴、金額・ポイント、配送条件を定義します。[formal/CommandFlow.dfy](formal/CommandFlow.dfy) の純粋関数 `DecideCommand` は、入力とDBのスナップショットから拒否、変更なし、または型付きの更新内容を返します。明細は商品IDと数量のマップで渡します。配送完了の更新内容に付与ポイントと請求書作成が含まれることをDafnyで証明し、Goによる一括保存と再試行を実PostgreSQLで確認します。
+[formal/Domain.dfy](formal/Domain.dfy) は、在庫・カート、受注履歴、金額・ポイント、配送条件を定義します。ワーカーは [formal/CommandFlow.dfy](formal/CommandFlow.dfy) の `ExecuteCommand` を呼び、Goで実装した `Effects` を渡します。Dafnyがどの顧客のカートを読むか、クーポンや商品・在庫・ポイント残高をいつ読むか、どの更新を適用するかを決めます。`DecideCommand` は変更を返す純粋関数で、配送完了には付与ポイントと請求書作成が含まれます。SQL・トランザクション・PDF生成の実装はGoに置き、実PostgreSQLで確認します。
 
 ```bash
 # Dafny検証、生成コードとの一致、故意のバグ検出、型誤用のコンパイル拒否、Goテスト、静的検査

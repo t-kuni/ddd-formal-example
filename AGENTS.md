@@ -26,7 +26,7 @@
 - ID、金額、数量等は専用型に変換し、集約フィールドを公開しない。DTOを集約へ直接保存しない。Snapshotはコピーとする。
 - Goのゼロ値・enumは完全には型で防げない。入力境界・集約操作・DB復元の検査を維持する。
 - HTTP APIはOpenAPIによるスキーマ駆動とする。APIを追加・変更するときは原本の `api/openapi.yaml` を先に更新し、`go generate ./api` で全APIのルーティング・入出力型・ハンドラーインターフェースを再生成する。生成コードは直接編集しない。
-- 形式検証の原本は業務ルールの`formal/Domain.dfy`とCommandの更新内容を決める`formal/CommandFlow.dfy`。`generated/`を手で修正しない。手書きGoで同じ計算を複製しない。
+- 形式検証の原本は業務ルールの`formal/Domain.dfy`とCommandの読み込み・更新内容・実行順序を決める`formal/CommandFlow.dfy`。`generated/`を手で修正しない。手書きGoで同じ計算を複製しない。
 
 ## 業務ルールの要点
 
@@ -44,8 +44,8 @@
 | 在庫・カートの引当と期限・受注履歴・配送条件・値の範囲・金額とポイントの形式仕様 | `formal/Domain.dfy` |
 | 値オブジェクト・集約 | `internal/domain/values.go`, `types.go`, `aggregate.go` |
 | Commandの永続受付・受付時の冪等性 | `internal/app/commands.go` |
-| Commandの権限・分岐・更新内容 | `formal/CommandFlow.dfy` の `DecideCommand` |
-| トランザクション・再試行・完了記録 | `internal/app/command_execution.go` |
+| Commandの読み込み先・分岐・更新内容・再試行 | `formal/CommandFlow.dfy` の `ExecuteCommand` と純粋関数 |
+| 更新適用とトランザクションの副作用実装 | `internal/app/command_execution.go` |
 | Commandのスナップショット取得・更新内容の適用 | `internal/app/command_plan.go` |
 | 請求書・SMTP | `internal/app/invoice.go` |
 | 正規化スキーマ・集約保存・楽観ロック | `internal/store/schema.sql`, `aggregates.go` |
@@ -109,6 +109,6 @@ docker compose --profile test run --build --rm -v "$PWD:/src" verify ./scripts/g
 - arm64の実行は未検証。verifyはamd64版Dafnyを使用する。
 - スキーマは起動時SQLで初期化する。スキーマを変更したときは、既存のローカル検証データを破棄し、空のDBから初期化してよい。データ移行SQLは不要。
 - PostgreSQLのボリュームは `pg-normalized-v2-data`。DBだけを初期化するときは対象のPostgreSQLボリュームに限定する。
-- 形式証明は業務コアと、Commandの更新内容に対する事後条件が対象。DB・ネットワーク・手書きGo・UIの実動作はテストで確認する。
+- 形式証明は業務コア、Commandが指定する読み込み・更新内容と、操作契約に基づく完了・コミットの順序が対象。DB・ネットワーク・手書きGo・UIの実動作はテストで確認する。
 
 修正後の報告には変更点、実行した検証、未検証事項を含める。設計や起動方法が変わればREADME・docs・このファイルを更新する。
